@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="首都高ナビ図">
+  <rect width="512" height="512" fill="#14583f"/>
+  <!-- 環状線と分岐。小さなホーム画面でも輪郭が残る太さに。 -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M-24 403 122 318M194 142 151-24M370 194 536 151M318 390 403 536" stroke="#75ad94" stroke-width="26"/>
+    <path d="m186 105 135 0 86 86 0 135-86 86H186l-86-86V191Z" stroke="#f2d482" stroke-width="28"/>
+    <path d="M-24 403 199 274Q224 259 242 240L403 79" stroke="#14583f" stroke-width="62"/>
+    <path d="M-24 403 199 274Q224 259 242 240L376 106" stroke="#f5f7ec" stroke-width="28"/>
+  </g>
+  <path d="m331 79 91-9-9 91-27-27-28 28-26-26 28-28Z" fill="#f5f7ec" stroke="#14583f" stroke-width="9" stroke-linejoin="round"/>
+  <circle cx="216" cy="263" r="27" fill="#14583f"/>
+  <circle cx="216" cy="263" r="15" fill="#f5f7ec"/>
+</svg>

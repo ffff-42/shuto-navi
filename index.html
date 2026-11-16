@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>首都高ナビ図</title>
+  <meta name="description" content="首都高の路線のつながりと、どっちへ行けば何方面かをつかむための簡易マップ">
+  <meta name="theme-color" content="#176448">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="首都高ナビ">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>首都高ナビ図</h1>
+    <p class="sub">路線のつながりと「どっちへ行けば何方面か」をつかむための簡易マップ</p>
+  </header>
+
+  <main class="layout">
+    <section class="map-wrap" aria-label="路線図">
+      <svg id="map" role="img" aria-label="首都高の簡易路線図"></svg>
+      <div class="map-layers" aria-label="表示切り替え">
+        <label><input type="checkbox" data-layer="places" checked> 主要地名</label>
+        <label><input type="checkbox" data-layer="routenames" checked> 路線名</label>
+        <label><input type="checkbox" data-layer="exits" checked> 出入口</label>
+        <label><input type="checkbox" data-layer="geo" checked> 海・川</label>
+      </div>
+      <div class="map-legend" id="legend" aria-label="凡例"></div>
+      <div class="map-tools">
+        <button type="button" id="zoomIn" aria-label="拡大">＋</button>
+        <button type="button" id="zoomOut" aria-label="縮小">－</button>
+        <button type="button" id="zoomReset" aria-label="全体を表示">全体</button>
+        <button type="button" id="zoomCenter" aria-label="都心を拡大">都心</button>
+      </div>
+      <button type="button" class="map-overlay-btn" id="overlayToggle" aria-expanded="false" aria-label="凡例と表示切り替えを開く">凡例</button>
+      <p class="map-hint">ドラッグで移動・ホイール/ピンチで拡大。地点をタップすると分岐の行き先が出ます。</p>
+    </section>
+
+    <aside class="panel" data-sheet="min">
+      <button type="button" class="sheet-handle" id="sheetHandle" aria-label="パネルの大きさを切り替え"><span></span></button>
+      <nav class="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="route" class="active">ルート案内</button>
+        <button type="button" role="tab" data-tab="spot">地点</button>
+        <button type="button" role="tab" data-tab="lines">路線一覧</button>
+        <button type="button" role="tab" data-tab="basics">基本</button>
+      </nav>
+
+      <div class="tab-body" id="tab-route">
+        <div class="field">
+          <label for="from">出発（乗る場所・つながる高速）</label>
+          <select id="from"></select>
+        </div>
+        <div class="swap-row"><button type="button" id="swap">⇅ 入れ替え</button></div>
+        <div class="field">
+          <label for="to">目的地（降りる場所・つながる高速）</label>
+          <select id="to"></select>
+        </div>
+        <button type="button" id="search" class="primary">ルートを表示</button>
+        <div id="result"></div>
+      </div>
+
+      <div class="tab-body hidden" id="tab-spot">
+        <div id="spot"><p class="muted">地図上の地点（JCTや出入口）をタップすると、ここに「その地点から行ける方向と方面」が表示されます。</p></div>
+      </div>
+
+      <div class="tab-body hidden" id="tab-lines">
+        <div id="lines"></div>
+      </div>
+
+      <div class="tab-body hidden" id="tab-basics">
+        <div id="basics"></div>
+      </div>
+    </aside>
+  </main>
+
+  <script src="theme.js"></script>
+  <script src="data.js"></script>
+  <script src="geo.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
