@@ -450,7 +450,7 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
 .sheet-handle, .map-overlay-btn { display: none; }
 @media (max-width: 820px) {
   html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
-  body { height: 100dvh; }
+  body { height: 100dvh; height: var(--app-h, 100dvh); } /* --app-h：iPhoneのホーム画面アプリ用（Claude Code 追記） */
 
   /* 見出しも地図の上へ。セーフエリアの内側に操作をまとめる。 */
   .topbar {
@@ -478,7 +478,7 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
   .map-wrap { flex: 1; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
   .map-hint { display: none; }
 
-  /* つまみ・タブは最小状態でも44px以上。本文だけをスクロールする。 */
+  /* タブは44px以上を保ち、本文だけをスクロールする。 */
   .panel {
     position: relative;
     flex: none;
@@ -492,7 +492,7 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
     max-height: calc(100dvh - env(safe-area-inset-top) - 68px);
     transition: height .28s cubic-bezier(.22, .7, .25, 1);
   }
-  .panel[data-sheet="min"] { height: calc(100px + env(safe-area-inset-bottom)); }
+  .panel[data-sheet="min"] { height: calc(56px + env(safe-area-inset-bottom)); }
   .panel[data-sheet="half"] { height: calc(clamp(392px, 50dvh, 460px) + env(safe-area-inset-bottom)); }
   .panel[data-sheet="full"] { height: min(84dvh, calc(100dvh - env(safe-area-inset-top) - 124px)); }
   .panel[data-sheet="min"] .tab-body { display: none; }
@@ -540,6 +540,10 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
     border-radius: 2px;
     background: var(--accent);
   }
+  /* 最小時はつまみを細い独立した操作帯にし、タブの押せる範囲を保つ。 */
+  .panel[data-sheet="min"] .sheet-handle { height: 10px; }
+  .panel[data-sheet="min"] .sheet-handle span { height: 3px; }
+  .panel[data-sheet="min"] .tabs { padding-bottom: 0; }
   .tab-body {
     padding: 16px 20px 24px;
     overflow-y: auto;
@@ -573,6 +577,10 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
     --legend-width: min(288px, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 88px));
     --legend-height: min(60dvh, 520px, calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 90px));
     --layers-height: 132px;
+  }
+  body[data-sheet="min"] .map-wrap {
+    /* 最小パネルの上端から12px離し、ホーム画面アプリの高さにも合わせる。 */
+    --legend-height: min(60dvh, 520px, calc(var(--app-h, 100dvh) - var(--legend-top) - env(safe-area-inset-bottom) - 68px));
   }
   .map-tools {
     top: calc(env(safe-area-inset-top) + 12px);
@@ -1156,101 +1164,66 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
 }
 #routePick:is(.active, [aria-expanded="true"])::after { transform: translateY(1px) rotate(225deg); }
 
+/* JSが測ったボタン列の位置を使い、4文字の名前が読める幅だけ確保する。 */
+.map-wrap {
+  --route-picker-width: min(68px, max(64px, var(--picker-width, 64px)));
+  --route-ui-bottom: 42px;
+  --route-now-height: 38px;
+}
 .route-picker {
   position: absolute;
-  top: 176px;
-  right: 84px;
+  top: calc(var(--picker-top) + 6px);
+  right: var(--picker-right);
+  bottom: var(--route-ui-bottom);
   z-index: 4;
   display: flex;
   flex-direction: column;
-  width: min(320px, calc(100% - 100px));
-  max-height: min(324px, calc(100% - 224px));
-  overflow: hidden;
-  padding: 0 8px 8px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--panel);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 12%, transparent), var(--shadow);
-}
-.route-picker[hidden] { display: none; }
-.route-picker-head {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  min-height: 46px;
-  margin-bottom: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-}
-.route-picker-title {
-  flex: 1;
-  min-width: 0;
-  padding-left: 8px;
-  border-left: 3px solid var(--accent);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.5;
-  letter-spacing: .025em;
-}
-.route-picker-btn {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  min-width: 34px;
-  height: 32px;
-  padding: 0 9px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  touch-action: manipulation;
-}
-#routePickClose {
-  width: 32px;
-  min-width: 32px;
-  padding: 0;
-  border-color: var(--border);
-  background: var(--chip-bg);
-  color: var(--text);
-  font-size: 21px;
-  font-weight: 400;
-}
-.route-chips {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-content: start;
-  gap: 5px;
+  width: var(--route-picker-width);
   min-height: 0;
+  overflow: hidden;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.map-wrap.route-on .route-picker {
+  bottom: calc(var(--route-ui-bottom) + var(--route-now-height) + 8px);
+}
+.route-picker[hidden], .route-now[hidden] { display: none; }
+.route-chips {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: 2px;
-  scroll-padding-block: 6px;
+  scroll-padding-block: 3px;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
 .route-chip {
   position: relative;
   display: flex;
+  flex: none;
+  flex-direction: column;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 2px;
   min-width: 0;
-  min-height: 34px;
-  padding: 4px 12px 4px 5px;
+  min-height: 48px;
+  padding: 4px 2px;
   border: 1px solid transparent;
   border-radius: 7px;
   background: var(--chip-bg);
   color: var(--text);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
-  line-height: 1.35;
-  text-align: left;
+  line-height: 1.2;
+  text-align: center;
   touch-action: manipulation;
 }
 .route-chip .badge {
@@ -1261,13 +1234,8 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
   border-radius: 5px;
   font-size: 11px;
 }
-.route-chip .chip-name {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-/* 長い接続路線名も省略せず読み切れる幅を取る。 */
+.route-chip .chip-name { white-space: nowrap; }
 .route-chip.ext { border-color: var(--border); border-style: dashed; background: transparent; color: var(--muted); }
-.route-chip.ext:last-child { grid-column: span 2; }
 .route-chip:is(.active, [aria-pressed="true"]) {
   border-style: solid;
   border-color: var(--accent);
@@ -1279,21 +1247,81 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
 .route-chip:is(.active, [aria-pressed="true"])::after {
   content: "";
   position: absolute;
-  top: 5px;
-  right: 4px;
-  width: 4px;
-  height: 7px;
+  top: 4px;
+  right: 3px;
+  width: 3px;
+  height: 6px;
   border-right: 1.5px solid var(--accent);
   border-bottom: 1.5px solid var(--accent);
   transform: rotate(45deg);
 }
-.route-chip:focus-visible, .route-picker-btn:focus-visible { outline-offset: -3px; }
-.route-chip:active, .route-picker-btn:active { background: var(--hover); }
+
+/* 強調中の路線は1行に収め、解除ボタンの幅を残して名前だけ省略する。 */
+.route-now {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: var(--route-ui-bottom);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--route-now-height);
+  min-width: 0;
+  padding: 0 3px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.map-wrap.picker-open .route-now {
+  right: calc(var(--picker-right) + var(--route-picker-width) + 8px);
+}
+.route-now-label { flex: none; color: var(--muted); font-size: 10px; }
+.route-now-routes {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+.route-now-item {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+.route-now-item .badge { flex: none; min-width: 26px; height: 22px; padding: 0 3px; font-size: 10px; }
+.route-now-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.route-now-clear {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 32px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--chip-bg);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  touch-action: manipulation;
+}
+.route-chip:focus-visible, .route-now-clear:focus-visible { outline-offset: -3px; }
+.route-chip:active, .route-now-clear:active { background: var(--hover); }
 @media (hover: hover) {
   .map-tools #routePick:hover:not(.active):not([aria-expanded="true"]),
-  .route-picker-btn:hover { border-color: var(--border); background: var(--hover); color: var(--text); }
+  .route-now-clear:hover { border-color: var(--border); background: var(--hover); }
   .route-chip:hover:not(.active):not([aria-pressed="true"]) { border-color: var(--border); background: var(--hover); }
-  .route-picker:has(.route-chip.active) #routeClear:hover { color: var(--accent); }
 }
 
 /* 未選択も操作できる入力欄として保ち、補足と解除は一段控えめに。 */
@@ -1332,47 +1360,25 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
-@media (min-width: 1440px) {
-  /* 上部の検索欄と間隔を空け、拡大縮小ツールの左に収める。 */
-  .route-picker { top: 84px; max-height: min(324px, calc(100% - 132px)); }
-}
 @media (max-width: 820px) {
   .map-tools #routePick { height: 44px; border-radius: 10px; }
-  .route-picker {
-    top: auto;
-    bottom: 36px;
-    left: calc(env(safe-area-inset-left) + 12px);
-    right: calc(env(safe-area-inset-right) + 76px);
-    width: auto;
-    max-height: min(236px, calc(100% - env(safe-area-inset-top) - 160px));
-    padding: 0 6px 6px;
-    border-radius: 16px;
+  .map-wrap {
+    /* 地図とパネルの重なり24px＋パネル上の間隔12px。 */
+    --route-ui-bottom: 36px;
+    --route-now-height: 44px;
   }
-  .route-picker-head { min-height: 52px; margin-bottom: 5px; padding: 3px 0; }
-  .route-picker-title { padding-left: 6px; font-size: 12px; letter-spacing: 0; }
-  .route-picker-btn, #routePickClose { min-width: 44px; width: auto; height: 44px; }
-  .route-chips { gap: 5px; }
-  .route-chip { min-height: 44px; padding: 4px 10px 4px 4px; gap: 4px; font-size: 12px; }
-  .route-chip .badge { min-width: 26px; height: 22px; font-size: 10px; }
+  .route-picker { border-radius: 15px; }
+  .route-now {
+    left: calc(env(safe-area-inset-left) + 12px);
+    right: calc(env(safe-area-inset-right) + 12px);
+    gap: 6px;
+    padding: 0 0 0 8px;
+  }
+  .route-now-clear { width: 44px; min-width: 44px; height: 44px; }
   #tab-route .clear-route { min-height: 44px; margin-top: 4px; }
   .route-hint { margin-top: 12px; font-size: 13px; }
-  /* 全開シート時も、既存の凡例と同じく画面上で開閉できる位置に保つ。 */
-  body[data-sheet="full"] .route-picker {
-    position: fixed;
-    top: calc(env(safe-area-inset-top) + 120px);
-    bottom: auto;
-    right: calc(env(safe-area-inset-right) + 12px);
-    z-index: 6;
-    max-height: min(236px, calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 144px));
-  }
 }
-/* 高さの小さい画面では、半開シートでカードの見出しだけになるのを防ぐ。 */
-@media (max-width: 820px) and (max-height: 640px) {
-  body[data-sheet="half"] .route-picker {
-    position: fixed;
-    top: calc(env(safe-area-inset-top) + 120px);
-    bottom: auto;
-    z-index: 6;
-    max-height: min(236px, calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 144px));
-  }
+/* PC幅：「強調中」の1行カードを出している間は、左下の凡例をその上へ逃がす（Claude Code 追記） */
+@media (min-width: 821px) {
+  .map-wrap.route-on .map-legend { bottom: calc(var(--route-ui-bottom, 48px) + var(--route-now-height, 38px) + 8px); }
 }

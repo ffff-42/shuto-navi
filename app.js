@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "v5"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
+  const APP_VERSION = "v6"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
   const D = window.SHUTO_DATA;
   const N = D.nodes;
   const ROUTES = D.routes;
@@ -386,6 +386,22 @@
   // 地点を選んだときなど、パネルを「少なくとも半分」まで開く
   function openSheet() { if (sheetState() === "min") setSheet("half"); }
   document.body.dataset.sheet = panel.dataset.sheet;
+  // iPhoneのホーム画面アプリでは、画面の高さ（100dvh）が実際より短く出て、
+  // 画面の一番下に黒い帯が残ることがある。画面いっぱいのときは画面の高さそのものを使う。
+  (function () {
+    if (navigator.standalone !== true) return;
+    const set = () => {
+      const portrait = window.innerHeight >= window.innerWidth;
+      const long = Math.max(screen.width, screen.height), short = Math.min(screen.width, screen.height);
+      const sw = portrait ? short : long, sh = portrait ? long : short;
+      // 横幅が画面いっぱいでないとき（iPad の分割表示など）は手を出さない
+      const h = Math.abs(window.innerWidth - sw) <= 2 ? Math.max(window.innerHeight, sh) : window.innerHeight;
+      document.documentElement.style.setProperty("--app-h", h + "px");
+    };
+    set();
+    window.addEventListener("resize", set);
+    window.addEventListener("orientationchange", () => setTimeout(set, 300));
+  })();
   (function () {
     const h = $("sheetHandle");
     let start = null;
@@ -445,6 +461,7 @@
     document.querySelectorAll(".legend-item").forEach((b) => b.classList.toggle("active", on.has(b.dataset.route)));
     document.querySelectorAll(".line-item").forEach((li) => li.classList.toggle("active", on.has(li.dataset.route)));
     document.querySelectorAll(".route-chip").forEach((b) => { b.classList.toggle("active", on.has(b.dataset.route)); b.setAttribute("aria-pressed", String(on.has(b.dataset.route))); });
+    renderRouteNow(ids);
     // 既定は「全体のまま強調」。設定で「路線を選んだら拡大」にしたときだけ寄る
     if (ids.length && zoomOnRoute) fit([...new Set(ids.flatMap((id) => R[id].seq.map((s) => s[0])))], 50);
   }
@@ -702,26 +719,58 @@
     });
   }
 
-  // ---------- 地図上の路線選択カード（「路線」ボタンで開閉） ----------
-  // パネルを開かずに、地図を見たまま路線を切り替えて強調できる
+  // ---------- 地図上の路線選択（「路線」ボタンで開閉） ----------
+  // 右のボタン列のすぐ下に、細い縦長の一覧として出す（地図の横幅を取らない）。
+  // 選んだ路線は地図の下に1行で出し、そこから解除できる。
   function shortRouteName(r) {
     return r.name.replace(/（.*?）/g, "").replace(/^神奈川\d+号/, "").replace(/^\d+号/, "").replace(/線$/, "");
   }
+  // 細い一覧に収まるよう、長い名前だけ縮める（4文字程度まで）
+  const CHIP_NAME = { K7: "横浜北", C3: "外環", CA: "アクア" };
+  function chipName(id) { return CHIP_NAME[id] || shortRouteName(R[id]); }
   function renderRoutePicker() {
     $("routeChips").innerHTML = GROUPS.map((g) => g.ids.filter((id) => R[id]).map((id) =>
-      `<button type="button" class="route-chip${R[id].external ? " ext" : ""}" data-route="${id}" aria-pressed="false" title="${esc(R[id].name)}">${badge(id)}<span class="chip-name">${esc(shortRouteName(R[id]))}</span></button>`
+      `<button type="button" class="route-chip${R[id].external ? " ext" : ""}" data-route="${id}" aria-pressed="false" aria-label="${esc(R[id].name)}" title="${esc(R[id].name)}">${badge(id)}<span class="chip-name">${esc(chipName(id))}</span></button>`
     ).join("")).join("");
     $("routeChips").querySelectorAll(".route-chip").forEach((b) => (b.onclick = () => highlightRoute(activeRoute === b.dataset.route ? null : b.dataset.route)));
+  }
+  function renderRouteNow(ids) {
+    const box = $("routeNow");
+    if (!box) return;
+    box.hidden = !ids.length;
+    document.querySelector(".map-wrap").classList.toggle("route-on", ids.length > 0);
+    $("routeNowRoutes").innerHTML = ids.map((id) => `<span class="route-now-item">${badge(id)}<span class="route-now-name">${esc(R[id].name)}</span></span>`).join("");
+  }
+  // 一覧の上端・右端・幅を、右のボタン列に合わせる（CSS変数で渡す）
+  function placeRoutePicker() {
+    const wrap = document.querySelector(".map-wrap"), tools = document.querySelector(".map-tools");
+    if (!wrap || !tools) return;
+    const w = wrap.getBoundingClientRect(), t = tools.getBoundingClientRect();
+    wrap.style.setProperty("--picker-top", Math.round(t.bottom - w.top) + "px");
+    wrap.style.setProperty("--picker-right", Math.round(w.right - t.right) + "px");
+    wrap.style.setProperty("--picker-width", Math.round(t.width) + "px");
   }
   function setRoutePicker(open) {
     $("routePicker").hidden = !open;
     $("routePick").setAttribute("aria-expanded", String(open));
     $("routePick").classList.toggle("active", open);
     document.querySelector(".map-wrap").classList.toggle("picker-open", open);
+    if (open) {
+      // スマホでは地図を広く見せるため、パネルを一番小さく戻してから位置を合わせる
+      if (isMobile()) setSheet("min");
+      placeRoutePicker();
+      const cur = $("routeChips").querySelector(".route-chip.active");
+      if (cur) cur.scrollIntoView({ block: "nearest" });
+    }
   }
   $("routePick").onclick = () => setRoutePicker($("routePicker").hidden);
-  $("routeClear").onclick = () => highlightRoute(null);
-  $("routePickClose").onclick = () => setRoutePicker(false);
+  $("routeNowClear").onclick = () => highlightRoute(null);
+  window.addEventListener("resize", () => { if (!$("routePicker").hidden) placeRoutePicker(); });
+  // スマホでパネルを広げたら地図が狭くなるので一覧は閉じる。大きさが変わったら位置を合わせ直す
+  new MutationObserver(() => {
+    if (isMobile() && document.body.dataset.sheet !== "min") setRoutePicker(false);
+    else if (!$("routePicker").hidden) requestAnimationFrame(placeRoutePicker);
+  }).observe(document.body, { attributes: true, attributeFilter: ["data-sheet"] });
 
   // ---------- 表示切り替え ----------
   document.querySelectorAll(".map-layers input").forEach((cb) => {
