@@ -38,6 +38,17 @@ window.SHUTO_GEO = {
     { name: "川崎", lat: 35.531, lon: 139.697, tier: 2, access: [["K1", "浜川崎・大師出入口"]] },
     { name: "舞浜・浦安", lat: 35.633, lon: 139.880, tier: 2, access: [["B", "舞浜出入口"]] },
     { name: "さいたま新都心", lat: 35.894, lon: 139.632, tier: 2, access: [["S5", "与野出入口"]] },
-    { name: "二子玉川", lat: 35.611, lon: 139.627, tier: 3, access: [["3", "用賀出入口"]] }
+    { name: "二子玉川", lat: 35.611, lon: 139.627, tier: 3, access: [["3", "用賀出入口"]] },
+    // tier 4：「地名モード」のときだけ表示する、位置の目安になる地名（出入口の情報は未登録）
+    { name: "秋葉原", lat: 35.698, lon: 139.773, tier: 4, access: [] },
+    { name: "東京ドーム", lat: 35.705, lon: 139.752, tier: 4, access: [] },
+    { name: "赤坂", lat: 35.674, lon: 139.737, tier: 4, access: [] },
+    { name: "新橋", lat: 35.666, lon: 139.758, tier: 4, access: [] },
+    { name: "中野", lat: 35.706, lon: 139.666, tier: 4, access: [] },
+    { name: "練馬", lat: 35.738, lon: 139.654, tier: 4, access: [] },
+    { name: "赤羽", lat: 35.778, lon: 139.721, tier: 4, access: [] },
+    { name: "下北沢", lat: 35.661, lon: 139.668, tier: 4, access: [] },
+    { name: "自由が丘", lat: 35.607, lon: 139.669, tier: 4, access: [] },
+    { name: "葛西臨海公園", lat: 35.641, lon: 139.861, tier: 4, access: [] }
   ]
 };

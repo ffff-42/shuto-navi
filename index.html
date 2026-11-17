@@ -32,6 +32,7 @@
         <label><input type="checkbox" data-layer="routenames" checked> 路線名</label>
         <label><input type="checkbox" data-layer="exits" checked> 出入口</label>
         <label><input type="checkbox" data-layer="geo" checked> 海・川</label>
+        <label class="map-option"><input type="checkbox" id="zoomOnRoute"> 路線を選んだら拡大</label>
       </div>
       <div class="map-legend" id="legend" aria-label="凡例"></div>
       <div class="map-tools">
@@ -39,6 +40,7 @@
         <button type="button" id="zoomOut" aria-label="縮小">－</button>
         <button type="button" id="zoomReset" aria-label="全体を表示">全体</button>
         <button type="button" id="zoomCenter" aria-label="都心を拡大">都心</button>
+        <button type="button" id="placeMode" class="mode-btn" aria-pressed="false" aria-label="主要地名を強調する地名モード">地名</button>
       </div>
       <button type="button" class="map-overlay-btn" id="overlayToggle" aria-expanded="false" aria-label="凡例と表示切り替えを開く">凡例</button>
       <p class="map-hint">ドラッグで移動・ホイール/ピンチで拡大。地点をタップすると分岐の行き先が出ます。</p>

@@ -346,7 +346,7 @@
       if (downInfo && Math.hypot(e.clientX - downInfo.x, e.clientY - downInfo.y) < 6) {
         if (downInfo.node) selectNode(downInfo.node);
         else if (downInfo.place != null) selectPlace(+downInfo.place);
-        else if (downInfo.route) { showTab("lines"); highlightRoute(downInfo.route); openSheet(); }
+        else if (downInfo.route) { showTab("lines"); highlightRoute(activeRoute === downInfo.route ? null : downInfo.route); if (zoomOnRoute) openSheet(); }
         else highlightRoute(null);
       }
       dragStart = null; downInfo = null;
@@ -413,6 +413,23 @@
   // 地図の表示サイズが変わったとき（パネルの開閉・画面の回転）に表示を合わせ直す
   if (window.ResizeObserver) new ResizeObserver(() => setView(view)).observe(svg);
 
+  // ---------- 表示の設定（端末に保存） ----------
+  function loadPref(key, def) { try { const v = localStorage.getItem(key); return v === null ? def : v === "1"; } catch (e) { return def; } }
+  function savePref(key, on) { try { localStorage.setItem(key, on ? "1" : "0"); } catch (e) { /* 保存できなくても動く */ } }
+  let zoomOnRoute = loadPref("shuto-zoom-route", false);
+  $("zoomOnRoute").checked = zoomOnRoute;
+  $("zoomOnRoute").onchange = (e) => { zoomOnRoute = e.target.checked; savePref("shuto-zoom-route", zoomOnRoute); };
+  // 地名モード：主要地名を大きく、出入口名・路線名などを控えめにして位置関係を見やすくする
+  function setPlaceMode(on) {
+    svg.classList.toggle("place-mode", on);
+    document.body.classList.toggle("place-mode", on);
+    $("placeMode").setAttribute("aria-pressed", String(on));
+    $("placeMode").classList.toggle("active", on);
+    savePref("shuto-place-mode", on);
+  }
+  $("placeMode").onclick = () => setPlaceMode(!svg.classList.contains("place-mode"));
+  setPlaceMode(loadPref("shuto-place-mode", false));
+
   // ---------- 路線のハイライト ----------
   let activeRoute = null;
   function highlightRoute(rid) {
@@ -423,7 +440,8 @@
     gRouteName.querySelectorAll(".route-name").forEach((t) => t.classList.toggle("on", t.getAttribute("data-route") === rid));
     document.querySelectorAll(".legend-item").forEach((b) => b.classList.toggle("active", b.dataset.route === rid));
     document.querySelectorAll(".line-item").forEach((li) => li.classList.toggle("active", li.dataset.route === rid));
-    if (rid) fit(R[rid].seq.map((s) => s[0]), 50);
+    // 既定は「全体のまま強調」。設定で「路線を選んだら拡大」にしたときだけ寄る
+    if (rid && zoomOnRoute) fit(R[rid].seq.map((s) => s[0]), 50);
   }
 
   // ---------- 経路探索 ----------
@@ -643,6 +661,7 @@
       .sort((a, b) => a.d - b.d).slice(0, 3);
     let html = `<p class="spot-title">${esc(pl.name)}</p><p class="muted">主要な地名</p>`;
     html += `<p class="summary-line">使う路線と出入口</p>`;
+    if (!pl.access.length) html += `<p class="muted" style="font-size:13px">位置の目安として載せている地名です（最寄りの出入口は未登録）。</p>`;
     pl.access.forEach(([rid, txt]) => {
       html += `<div class="branch">${badge(rid)} <b>${esc(R[rid].name)}</b><div class="next">${esc(txt)}</div></div>`;
     });
