@@ -432,17 +432,21 @@
 
   // ---------- 路線のハイライト ----------
   let activeRoute = null;
+  // rid：路線ID（文字列）か、まとめて強調する路線IDの配列（例：1号上野線と1号羽田線）
   function highlightRoute(rid) {
-    activeRoute = rid;
-    svg.classList.toggle("dim", !!rid);
-    gEdge.querySelectorAll(".edge").forEach((l) => l.classList.toggle("on", l.getAttribute("data-route") === rid));
-    gTag.querySelectorAll(".route-tag").forEach((g) => g.classList.toggle("on", g.getAttribute("data-route") === rid));
-    gRouteName.querySelectorAll(".route-name").forEach((t) => t.classList.toggle("on", t.getAttribute("data-route") === rid));
-    document.querySelectorAll(".legend-item").forEach((b) => b.classList.toggle("active", b.dataset.route === rid));
-    document.querySelectorAll(".line-item").forEach((li) => li.classList.toggle("active", li.dataset.route === rid));
+    const ids = rid ? [].concat(rid) : [];
+    const on = new Set(ids);
+    activeRoute = ids.length === 1 ? ids[0] : ids.length ? ids.join(",") : null;
+    svg.classList.toggle("dim", ids.length > 0);
+    gEdge.querySelectorAll(".edge").forEach((l) => l.classList.toggle("on", on.has(l.getAttribute("data-route"))));
+    gTag.querySelectorAll(".route-tag").forEach((g) => g.classList.toggle("on", on.has(g.getAttribute("data-route"))));
+    gRouteName.querySelectorAll(".route-name").forEach((t) => t.classList.toggle("on", on.has(t.getAttribute("data-route"))));
+    document.querySelectorAll(".legend-item").forEach((b) => b.classList.toggle("active", on.has(b.dataset.route)));
+    document.querySelectorAll(".line-item").forEach((li) => li.classList.toggle("active", on.has(li.dataset.route)));
     // 既定は「全体のまま強調」。設定で「路線を選んだら拡大」にしたときだけ寄る
-    if (rid && zoomOnRoute) fit(R[rid].seq.map((s) => s[0]), 50);
+    if (ids.length && zoomOnRoute) fit([...new Set(ids.flatMap((id) => R[id].seq.map((s) => s[0])))], 50);
   }
+
 
   // ---------- 経路探索 ----------
   const TRANSFER_PENALTY = 1.0;
@@ -770,6 +774,109 @@
       </ul>`;
   }
 
+  // ---------- 検索（文字・声） ----------
+  // このアプリに載っている地名・路線名・JCT名だけを候補にして、近いものを探す（search.js）
+  const SEARCH = window.SHUTO_SEARCH;
+  const sIndex = SEARCH.createIndex({ nodes: D.nodes, routes: ROUTES, places: GEO.places });
+  const KIND_NAME = { place: "地名", route: "路線", node: "地点" };
+  function showSearchPanel(msg, hits) {
+    $("searchPanel").hidden = false;
+    $("searchMsg").textContent = msg || "";
+    $("searchHits").innerHTML = (hits || []).map((h, i) => {
+      const mark = h.kind === "route" ? badge(h.id) : `<span class="hit-kind kind-${h.kind}">${h.kindLabel || KIND_NAME[h.kind]}</span>`;
+      return `<button type="button" class="search-hit" data-i="${i}">${mark}<span class="hit-name">${esc(h.label)}</span>${h.sub ? `<span class="hit-sub">${esc(h.sub)}</span>` : ""}</button>`;
+    }).join("");
+    $("searchHits").querySelectorAll(".search-hit").forEach((b) => (b.onclick = () => { showHits([hits[+b.dataset.i]]); closeSearchPanel(); }));
+  }
+  function closeSearchPanel() { $("searchPanel").hidden = true; }
+  function centerOn(p) {
+    const w = Math.max(Math.min(view.w, 230), 150), h = w * (view.h / view.w);
+    setView({ x: p.x - w / 2, y: p.y - h / 2, w, h });
+  }
+  // 当たったものを地図に出す
+  function showHits(sel) {
+    if (!sel || !sel.length) return;
+    const h = sel[0];
+    if (h.kind === "route") {
+      highlightRoute(sel.map((x) => x.id));
+      showTab("lines");
+      if (!zoomOnRoute) setView({ ...FULL }); // 全体を見たまま強調
+      const li = document.querySelector(`.line-item[data-route="${sel[0].id}"]`);
+      if (li) li.scrollIntoView({ block: "nearest" });
+    } else if (h.kind === "place") {
+      highlightRoute(null);
+      selectPlace(h.id);
+      centerOn(GEO.places[h.id].p);
+    } else {
+      highlightRoute(null);
+      selectNode(h.id);
+      centerOn(N[h.id].p);
+    }
+  }
+  // texts：入力文字、または音声認識の候補（複数）
+  function doSearch(texts, heard) {
+    const hits = SEARCH.search(sIndex, texts, 6);
+    const top = SEARCH.pickTop(hits);
+    const said = heard ? `「${heard}」` : "";
+    if (!hits.length) { showSearchPanel(`${said}に近い地名・路線が見つかりませんでした。`, []); return; }
+    if (top) {
+      showHits(top);
+      const others = hits.filter((x) => !top.includes(x));
+      showSearchPanel(`${said}${said ? "→ " : ""}${top.map((x) => x.label).join("・")} を表示しました。${others.length ? "ほかの候補：" : ""}`, others);
+      if (hits.length === top.length) setTimeout(closeSearchPanel, 2500);
+    } else {
+      showSearchPanel(`${said}もしかして（タップで表示）：`, hits);
+    }
+  }
+  $("searchForm").addEventListener("submit", (e) => { e.preventDefault(); const v = $("q").value.trim(); if (v) { doSearch([v]); $("q").blur(); } });
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Escape") closeSearchPanel(); });
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".map-search")) closeSearchPanel(); });
+
+  // 声で探す：ブラウザの音声認識（使えない環境ではキーボードのマイクで入力してもらう）
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null;
+  function setListening(on) {
+    $("mic").classList.toggle("listening", on);
+    $("mic").setAttribute("aria-pressed", String(on));
+    document.querySelector(".map-search").classList.toggle("listening", on);
+  }
+  function micFallback(msg) {
+    setListening(false);
+    showSearchPanel(msg + "検索欄をタップして、キーボードのマイクで話しても探せます。", []);
+    $("q").focus();
+  }
+  $("mic").onclick = () => {
+    if (rec) { rec.stop(); return; }
+    if (!SR) { micFallback("この画面では声の聞き取りが使えません。"); return; }
+    rec = new SR();
+    rec.lang = "ja-JP";
+    rec.interimResults = true;
+    rec.maxAlternatives = 5; // 聞き取りの候補を複数もらい、アプリ内の言葉にいちばん近いものを選ぶ
+    rec.continuous = false;
+    let done = false;
+    rec.onstart = () => { setListening(true); showSearchPanel("聞いています… 地名や路線名を話してください（例：「新宿」「1号」「湾岸線」）", []); };
+    rec.onresult = (ev) => {
+      const r = ev.results[ev.results.length - 1];
+      const alts = Array.from({ length: r.length }, (_, i) => r[i].transcript).filter(Boolean);
+      $("q").value = alts[0] || "";
+      if (r.isFinal && !done) { done = true; doSearch(alts, alts[0]); }
+      else if (!r.isFinal) $("searchMsg").textContent = `「${alts[0]}」…`;
+    };
+    rec.onerror = (ev) => {
+      done = true;
+      if (ev.error === "no-speech") showSearchPanel("声が聞き取れませんでした。もう一度「声で探す」を押してください。", []);
+      else if (ev.error === "not-allowed" || ev.error === "service-not-allowed") micFallback("マイクの使用が許可されていません。");
+      else if (ev.error !== "aborted") micFallback("声の聞き取りがうまくいきませんでした。");
+    };
+    rec.onend = () => {
+      setListening(false);
+      // 途中までしか聞き取れなかったときは、その言葉で探す
+      if (!done && $("q").value.trim()) doSearch([$("q").value.trim()], $("q").value.trim());
+      rec = null;
+    };
+    try { rec.start(); } catch (e) { rec = null; micFallback("声の聞き取りを始められませんでした。"); }
+  };
+
   // ---------- 起動 ----------
   setView({ ...FULL });
   fillSelects();
@@ -777,6 +884,9 @@
   renderLegend();
   renderBasics();
   runSearch();
+  // アドレスに ?q=新宿 のように付けて開くと、その言葉で探す
+  const q0 = new URLSearchParams(location.search).get("q");
+  if (q0) { $("q").value = q0; doSearch([q0], q0); }
 
   // ---------- オフライン対応（PWA） ----------
   // 開発中（localhost）は古いファイルが残らないよう登録しない。?sw=1 を付けると試せる。

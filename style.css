@@ -859,3 +859,268 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
   #map.place-mode.far .place.tier-3 .place-lbl { font-size: 10.5px; }
   #map.place-mode.far .place.tier-4 .place-lbl { font-size: 10px; }
 }
+
+/* ===== 検索欄・声で探す：地図の上に置く、小さな検索カード。 ===== */
+.map-search {
+  --search-alert: #b92f3c;
+  --search-alert-bg: #fff0f1;
+  position: absolute;
+  top: 112px;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: min(520px, calc(100% - 116px));
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: 0 6px 24px #102b2512, var(--shadow);
+  transform: translateX(-50%);
+  transition: border-color .18s, box-shadow .18s;
+}
+/* 虫眼鏡とマイクはCSSで描き、テーマに合わせて色を変える。 */
+.map-search::before {
+  content: "";
+  position: absolute;
+  top: 17px;
+  left: 16px;
+  width: 12px;
+  height: 12px;
+  border: 1.8px solid var(--muted);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.map-search::after {
+  content: "";
+  position: absolute;
+  top: 29px;
+  left: 28px;
+  width: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--muted);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.map-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), var(--shadow);
+}
+/* 開いている候補は地図ツールより前に置く。凡例を開く間は凡例を優先。 */
+.map-search:has(.search-panel:not([hidden])) { z-index: 4; }
+.map-search input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  height: 44px;
+  padding: 0 8px 0 36px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.5;
+  outline: none;
+}
+.map-search input::placeholder { color: var(--muted); opacity: 1; }
+.map-search input::-webkit-search-cancel-button { cursor: pointer; }
+.map-search input:focus-visible { outline: 0; }
+.mic-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 104px;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 11px;
+  background: var(--chip-bg);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.mic-label { display: inline; }
+.mic-btn:focus-visible { outline-offset: 1px; }
+.mic-icon {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 22px;
+  background: linear-gradient(currentColor, currentColor) center 17px / 2px 4px,
+    linear-gradient(currentColor, currentColor) center bottom / 10px 2px;
+  background-repeat: no-repeat;
+}
+.mic-icon::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 5px;
+  width: 8px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-radius: 6px;
+}
+.mic-icon::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 1px;
+  width: 16px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-top: 0;
+  border-radius: 0 0 9px 9px;
+}
+.map-search.listening {
+  border-color: var(--search-alert);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--search-alert) 16%, transparent), var(--shadow);
+}
+.mic-btn.listening, .mic-btn[aria-pressed="true"] {
+  border-color: var(--search-alert);
+  background: var(--search-alert);
+  color: #fff;
+  animation: search-listening 1.8s ease-in-out infinite;
+}
+@keyframes search-listening {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--search-alert) 24%, transparent); }
+}
+.search-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  max-height: min(340px, 45dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: 0 12px 32px #102b251a, var(--shadow);
+}
+.search-panel[hidden] { display: none; }
+.search-msg {
+  margin: 0;
+  padding: 6px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.search-msg:empty { display: none; }
+.search-panel:has(.search-hit) .search-msg:not(:empty) {
+  margin-bottom: 5px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.map-search.listening .search-panel { border-color: var(--search-alert); }
+.map-search.listening .search-msg {
+  padding: 10px;
+  border-radius: 9px;
+  background: var(--search-alert-bg);
+  color: var(--search-alert);
+  font-weight: 600;
+}
+.search-hits { display: flex; flex-direction: column; gap: 3px; }
+.search-hit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 9px;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  touch-action: manipulation;
+}
+.search-hit:focus-visible { outline-offset: -3px; background: var(--hover); }
+.search-hit:active, .mic-btn:active:not(.listening):not([aria-pressed="true"]) { background: var(--hover); }
+.search-hit .badge, .search-hit .hit-kind {
+  flex: none;
+  justify-content: center;
+  min-width: 42px;
+  height: 25px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 23px;
+  text-align: center;
+}
+.hit-kind { display: inline-flex; border: 1px solid var(--border); background: var(--chip-bg); color: var(--muted); font-weight: 600; }
+.hit-kind.kind-place { border-color: color-mix(in srgb, var(--accent) 22%, var(--border)); background: var(--chip-bg); color: var(--accent); }
+.hit-name { flex: 1; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.hit-sub { flex-basis: 100%; padding-left: 51px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+@media (hover: hover) {
+  .mic-btn:hover:not(.listening):not([aria-pressed="true"]) { border-color: var(--accent); background: var(--hover); }
+  .search-hit:hover { border-color: var(--border); background: var(--hover); }
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .map-search { --search-alert: #f18b95; --search-alert-bg: #3c252b; }
+  :root:not([data-theme="light"]) .mic-btn:is(.listening, [aria-pressed="true"]) { color: #38141c; }
+}
+:root[data-theme="dark"] .map-search { --search-alert: #f18b95; --search-alert-bg: #3c252b; }
+:root[data-theme="dark"] .mic-btn:is(.listening, [aria-pressed="true"]) { color: #38141c; }
+@media (min-width: 1440px) {
+  /* 表示設定に左の幅を予約し、右の拡大縮小ボタンにも余白を取る。 */
+  .map-layers { max-width: 312px; }
+  .map-search { top: 16px; left: 344px; right: 84px; width: auto; max-width: 520px; margin-inline: auto; transform: none; }
+}
+@media (max-width: 820px) {
+  .map-search {
+    top: calc(env(safe-area-inset-top) + 64px);
+    left: calc(env(safe-area-inset-left) + 12px);
+    right: calc(env(safe-area-inset-right) + 76px);
+    width: auto;
+    transform: none;
+  }
+  .mic-btn { min-width: 88px; gap: 5px; padding-inline: 8px; font-size: 11px; }
+  .map-wrap.overlays-open .map-search { z-index: 2; }
+  .search-panel { max-height: min(320px, 42dvh, calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 240px)); }
+  /* 半開シートの上端までに候補を収め、一覧の中だけをスクロールする。 */
+  body[data-sheet="half"] .search-panel {
+    max-height: max(96px, min(320px, calc(100dvh - clamp(392px, 50dvh, 460px) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 136px)));
+  }
+  /* 全開時は見出しの右に検索、次の行に凡例と横並びのツールを置く。 */
+  body[data-sheet="full"] .map-search {
+    top: calc(env(safe-area-inset-top) + 8px);
+    left: calc(env(safe-area-inset-left) + 138px);
+    right: calc(env(safe-area-inset-right) + 12px);
+  }
+  body[data-sheet="full"] .map-overlay-btn {
+    top: calc(env(safe-area-inset-top) + 64px);
+    left: calc(env(safe-area-inset-left) + 12px);
+    right: auto;
+  }
+  body[data-sheet="full"] .map-wrap {
+    --legend-top: calc(env(safe-area-inset-top) + 120px);
+    --legend-height: min(60dvh, 520px, calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 144px));
+  }
+  body[data-sheet="full"] .search-panel { max-height: min(260px, 36dvh); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-search, .mic-btn { transition: none; }
+  .mic-btn.listening, .mic-btn[aria-pressed="true"] { animation: none; }
+}
+/* 幅821〜1100px：検索欄が右の拡大縮小ボタンにかからないようにする（Claude Code 追記） */
+@media (min-width: 821px) and (max-width: 1100px) {
+  .map-search { left: 16px; right: 84px; width: auto; max-width: none; transform: none; }
+}

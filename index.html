@@ -27,6 +27,14 @@
   <main class="layout">
     <section class="map-wrap" aria-label="路線図">
       <svg id="map" role="img" aria-label="首都高の簡易路線図"></svg>
+      <form class="map-search" id="searchForm" role="search" autocomplete="off">
+        <input type="search" id="q" placeholder="地名・路線を探す（例：新宿、湾岸線、1号）" aria-label="地名・路線名で探す" enterkeyhint="search">
+        <button type="button" id="mic" class="mic-btn" aria-label="声で探す" aria-pressed="false"><span class="mic-icon" aria-hidden="true"></span><span class="mic-label">声で探す</span></button>
+        <div class="search-panel" id="searchPanel" hidden>
+          <p class="search-msg" id="searchMsg" aria-live="polite"></p>
+          <div class="search-hits" id="searchHits"></div>
+        </div>
+      </form>
       <div class="map-layers" aria-label="表示切り替え">
         <label><input type="checkbox" data-layer="places" checked> 主要地名</label>
         <label><input type="checkbox" data-layer="routenames" checked> 路線名</label>
@@ -86,6 +94,7 @@
   <script src="theme.js"></script>
   <script src="data.js"></script>
   <script src="geo.js"></script>
+  <script src="search.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

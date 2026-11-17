@@ -1,0 +1,250 @@
+// 首都高ナビ図：地名・路線名の「あいまい検索」
+// 音声認識の結果は表記ゆれ（漢字・ひらがな・カタカナ・数字）や聞き間違いを含むので、
+// このアプリに載っている言葉だけを候補にして、いちばん近いものを選ぶ。
+// - 読み（ひらがな）と表記の両方で比べる
+// - 文の中に地名が含まれていてもよい（例：「新宿を表示して」）
+// - 少しの聞き間違いは編集距離で吸収する（例：「美女気」→ 美女木）
+// - 「1番」「一位」「いちごう」などは路線番号として扱う
+(function () {
+  // 地点の読み（ひらがな）。名前の「JCT」は除いた形で書く
+  const YOMI = {
+    江戸橋: "えどばし", 銀座: "ぎんざ", 浜崎橋: "はまざきばし", 一ノ橋: "いちのはし", 谷町: "たにまち",
+    霞が関: "かすみがせき", 三宅坂: "みやけざか", 竹橋: "たけばし", 神田橋: "かんだばし", 上野: "うえの",
+    入谷: "いりや", 芝浦: "しばうら", 大井: "おおい", 平和島: "へいわじま", 昭和島: "しょうわじま",
+    羽田: "はねだ", 東海: "とうかい", 空港中央: "くうこうちゅうおう", 大師: "だいし", 生麦: "なまむぎ",
+    金港: "きんこう", 横浜公園: "よこはまこうえん", 石川町: "いしかわちょう", 狩場: "かりば", 本牧: "ほんもく",
+    大黒: "だいこく", 川崎浮島: "かわさきうきしま", アクアライン: "あくあらいん", 幸浦: "さちうら",
+    新横浜: "しんよこはま", 横浜港北: "よこはまこうほく", 横浜青葉: "よこはまあおば", 目黒: "めぐろ",
+    戸越: "とごし", 渋谷: "しぶや", 大橋: "おおはし", 用賀: "ようが", 新宿: "しんじゅく", 西新宿: "にししんじゅく",
+    永福: "えいふく", 高井戸: "たかいど", 飯田橋: "いいだばし", 東池袋: "ひがしいけぶくろ", 熊野町: "くまのちょう",
+    板橋: "いたばし", 高島平: "たかしまだいら", 美女木: "びじょぎ", 与野: "よの", 五反田: "ごたんだ",
+    西池袋: "にしいけぶくろ", 江北: "こうほく", 小菅: "こすげ", 堀切: "ほりきり", 小松川: "こまつがわ",
+    葛西: "かさい", 川口: "かわぐち", 箱崎: "はこざき", 両国: "りょうごく", 向島: "むこうじま", 八潮: "やしお",
+    三郷: "みさと", 錦糸町: "きんしちょう", 篠崎: "しのざき", 木場: "きば", 辰巳: "たつみ", 晴海: "はるみ",
+    豊洲: "とよす", 東雲: "しののめ", 台場: "だいば", 有明: "ありあけ", 新木場: "しんきば", 舞浜: "まいはま",
+    高谷: "こうや", 大泉: "おおいずみ",
+    // 主要地名
+    池袋: "いけぶくろ", 東京駅: "とうきょうえき", お台場: "おだいば", 羽田空港: "はねだくうこう", 横浜: "よこはま",
+    品川: "しながわ", 六本木: "ろっぽんぎ", 浅草: "あさくさ", スカイツリー: "すかいつりー", 北千住: "きたせんじゅ",
+    川崎: "かわさき", "舞浜・浦安": "まいはまうらやす", さいたま新都心: "さいたましんとしん", 二子玉川: "ふたこたまがわ",
+    秋葉原: "あきはばら", 東京ドーム: "とうきょうどーむ", 赤坂: "あかさか", 新橋: "しんばし", 中野: "なかの",
+    練馬: "ねりま", 赤羽: "あかばね", 下北沢: "しもきたざわ", 自由が丘: "じゆうがおか", 葛西臨海公園: "かさいりんかいこうえん"
+  };
+
+  // 地点の別名（他の高速道路の名前など）。[表記, 読み]
+  const NODE_ALIAS = {
+    yoga: [["東名", "とうめい"], ["東名高速", "とうめいこうそく"]],
+    aoba: [["横浜青葉インター", "よこはまあおばいんたー"]],
+    takaido: [["中央道", "ちゅうおうどう"], ["中央自動車道", "ちゅうおうじどうしゃどう"]],
+    oizumi: [["関越", "かんえつ"], ["関越道", "かんえつどう"]],
+    kawaguchi: [["東北道", "とうほくどう"], ["東北自動車道", "とうほくじどうしゃどう"]],
+    misato: [["常磐道", "じょうばんどう"], ["常磐自動車道", "じょうばんじどうしゃどう"]],
+    shinozaki: [["京葉道路", "けいようどうろ"]],
+    koya: [["東関東道", "ひがしかんとうどう"], ["成田", "なりた"]],
+    kohokujct: [["第三京浜", "だいさんけいひん"]],
+    kariba: [["保土ヶ谷バイパス", "ほどがやばいぱす"]],
+    sachiura: [["横浜横須賀道路", "よこはまよこすかどうろ"], ["横横", "よこよこ"]],
+    aqualine: [["木更津", "きさらづ"]],
+    togoshi: [["第二京浜", "だいにけいひん"]],
+    kukochuo: [["空港", "くうこう"]]
+  };
+  const PLACE_ALIAS = {
+    二子玉川: [["二子玉", "にこたま"]],
+    秋葉原: [["秋葉", "あきば"]],
+    "舞浜・浦安": [["舞浜", "まいはま"], ["浦安", "うらやす"], ["ディズニーランド", "でぃずにーらんど"], ["ディズニー", "でぃずにー"]],
+    羽田空港: [["羽田", "はねだ"], ["空港", "くうこう"]], // 「羽田」と言ったら空港を優先
+    スカイツリー: [["東京スカイツリー", "とうきょうすかいつりー"]],
+    東京駅: [["東京", "とうきょう"]],
+    お台場: [["台場", "だいば"]]
+  };
+
+  // 路線の言い方。[表記, 読み]。番号での呼び方は別に扱う
+  const ROUTE_ALIAS = {
+    C1: [["都心環状線", "としんかんじょうせん"], ["都心環状", "としんかんじょう"], ["C1", "しーわん"], ["環状線", "かんじょうせん"]],
+    C2: [["中央環状線", "ちゅうおうかんじょうせん"], ["中央環状", "ちゅうおうかんじょう"], ["中環", "ちゅうかん"], ["C2", "しーつー"], ["山手トンネル", "やまてとんねる"]],
+    B: [["湾岸線", "わんがんせん"], ["湾岸", "わんがん"], ["湾岸道路", "わんがんどうろ"]],
+    BB: [["湾岸分岐線", "わんがんぶんきせん"], ["分岐線", "ぶんきせん"]],
+    "1U": [["上野線", "うえのせん"]],
+    "1H": [["羽田線", "はねだせん"]],
+    K1: [["横羽線", "よこはねせん"], ["K1", "けーわん"], ["神奈川1号", "かながわいちごう"]],
+    "2": [["目黒線", "めぐろせん"]],
+    "3": [["渋谷線", "しぶやせん"]],
+    "4": [["新宿線", "しんじゅくせん"]],
+    "5": [["池袋線", "いけぶくろせん"]],
+    S5: [["埼玉大宮線", "さいたまおおみやせん"], ["大宮線", "おおみやせん"], ["S5", "えすふぁいぶ"]],
+    "6M": [["向島線", "むこうじません"]],
+    "6S": [["三郷線", "みさとせん"]],
+    "7": [["小松川線", "こまつがわせん"]],
+    "9": [["深川線", "ふかがわせん"]],
+    "10": [["晴海線", "はるみせん"]],
+    "11": [["台場線", "だいばせん"]],
+    S1: [["川口線", "かわぐちせん"], ["S1", "えすわん"]],
+    K3: [["狩場線", "かりばせん"], ["K3", "けーすりー"], ["神奈川3号", "かながわさんごう"]],
+    K5: [["大黒線", "だいこくせん"], ["K5", "けーふぁいぶ"], ["神奈川5号", "かながわごごう"]],
+    K6: [["川崎線", "かわさきせん"], ["K6", "けーしっくす"], ["神奈川6号", "かながわろくごう"]],
+    K7: [["横浜北線", "よこはまきたせん"], ["横浜北西線", "よこはまほくせいせん"], ["北線", "きたせん"], ["北西線", "ほくせいせん"], ["K7", "けーせぶん"], ["神奈川7号", "かながわななごう"]],
+    C3: [["外環道", "がいかんどう"], ["外環", "がいかん"], ["東京外環", "とうきょうがいかん"], ["C3", "しーすりー"]],
+    CA: [["東京湾アクアライン", "とうきょうわんあくあらいん"], ["アクアライン", "あくあらいん"]]
+  };
+  // 東京側の番号路線（「1号」「1番」など）
+  const ROUTE_NUM = { "1U": 1, "1H": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6M": 6, "6S": 6, "7": 7, "9": 9, "10": 10, "11": 11 };
+  const K_NUM = { K1: 1, K3: 3, K5: 5, K6: 6, K7: 7 };
+  const S_NUM = { S1: 1, S5: 5 };
+
+  // ---------- 文字の正規化 ----------
+  function kataToHira(s) { return s.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60)); }
+  function normalize(s) {
+    return kataToHira(String(s || "").normalize("NFKC").toLowerCase())
+      .replace(/(jct|じゃんくしょん|ジャンクション)/g, "")
+      .replace(/[\s・、。,.!?！？「」『』（）()\-ー~〜]/g, ""); // 長音「ー」も消す（聞き取りで揺れやすい）
+  }
+  const KNUM = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  // 数字の読み（長いものから順に）
+  const NUM_YOMI = [["じゅういち", 11], ["じゅうに", 12], ["じゅう", 10], ["いち", 1], ["いっ", 1], ["に", 2], ["さん", 3], ["よん", 4], ["し", 4],
+    ["ご", 5], ["ろく", 6], ["なな", 7], ["しち", 7], ["はち", 8], ["きゅう", 9], ["く", 9]];
+  const ENG_NUM = { わん: 1, つ: 2, すり: 3, ふぉ: 4, ふぁいぶ: 5, しっくす: 6, せぶん: 7 }; // 「ー」は正規化で消える
+
+  // 漢数字を算用数字に（十一 → 11 など）
+  function kanjiNum(s) {
+    return s.replace(/([一二三四五六七八九]?)十([一二三四五六七八九]?)/g, (m, a, b) => String((a ? KNUM[a] : 1) * 10 + (b ? KNUM[b] : 0)))
+      .replace(/[一二三四五六七八九]/g, (c) => {
+        return String(KNUM[c]);
+      });
+  }
+
+  // 「1号」「一番」「いちばん」「1位」「いちごうせん」「シーワン」などから路線を読み取る
+  function parseRouteNumber(q) {
+    const t = kanjiNum(q);
+    // 神奈川・埼玉の番号路線
+    let m = t.match(/^(?:かながわ|神奈川|けい|け|k)(\d{1,2}|わん|すり|ふぁいぶ|しっくす|せぶん)(?:ごう|号|せん|線)*$/);
+    if (m) return { pref: "K", n: /\d/.test(m[1]) ? +m[1] : ENG_NUM[m[1]] };
+    m = t.match(/^(?:えす|s)(\d|わん|ふぁいぶ)(?:ごう|号|せん|線)*$/);
+    if (m) return { pref: "S", n: /\d/.test(m[1]) ? +m[1] : ENG_NUM[m[1]] };
+    m = t.match(/^(?:し|c)(\d|わん|つ|すり)(?:せん|線)*$/);
+    if (m) return { pref: "C", n: /\d/.test(m[1]) ? +m[1] : ENG_NUM[m[1]] };
+    // 東京側：「1」「1号」「1番」「1位」「1号線」「1ばんせん」など
+    m = t.match(/^(?:だい|第)?(\d{1,2})(ごう|号|ばん|番|い|位|せん|線|ごうせん|号線|ばんせん|番線)?(?:の|せん|線)?$/);
+    if (m) return { pref: "", n: +m[1] };
+    for (const [y, n] of NUM_YOMI) {
+      const re = new RegExp("^(?:だい)?" + y + "(ごう|ばん|い|っ?ぽう|ごうせん|ばんせん)(?:せん)?$");
+      if (re.test(t)) return { pref: "", n };
+    }
+    return null;
+  }
+
+  // ---------- 似ている度合い ----------
+  function lev(a, b) {
+    const m = a.length, n = b.length;
+    if (!m) return n; if (!n) return m;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return prev[n];
+  }
+  // k が q のどこかに「だいたい」含まれているか（前後に余計な言葉があってもよい）
+  function fuzzyContain(k, q) {
+    const m = k.length, n = q.length;
+    let prev = new Array(n + 1).fill(0);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (k[i - 1] === q[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return Math.min(...prev);
+  }
+  function scoreKey(k, q) {
+    if (!k || !q) return 0;
+    if (k === q) return 1;
+    let s = 0;
+    if (k.length >= 2 && q.includes(k)) s = Math.max(s, 0.9 + Math.min(k.length, 8) * 0.005);
+    if (q.length >= 2 && k.includes(q)) s = Math.max(s, 0.84 * (0.55 + 0.45 * q.length / k.length));
+    if (k.length >= 3) {
+      const sim = 1 - fuzzyContain(k, q) / k.length;
+      if (sim >= 0.6) s = Math.max(s, 0.82 * sim);
+    }
+    if (k.length >= 2 && q.length >= 2) {
+      const sim = 1 - lev(k, q) / Math.max(k.length, q.length);
+      if (sim >= 0.5) s = Math.max(s, 0.8 * sim);
+    }
+    return s;
+  }
+
+  // ---------- 索引づくり ----------
+  function createIndex(data) {
+    const { nodes, routes, places } = data;
+    const entries = [];
+    const add = (e, pairs) => {
+      e.keys = [];
+      pairs.forEach(([surf, yomi]) => {
+        if (surf) e.keys.push(normalize(surf));
+        if (yomi) e.keys.push(normalize(yomi));
+      });
+      e.keys = [...new Set(e.keys.filter(Boolean))];
+      entries.push(e);
+    };
+    places.forEach((pl, i) => {
+      add({ kind: "place", id: i, label: pl.name, bonus: 0.03 + (pl.tier === 1 ? 0.01 : 0) },
+        [[pl.name, YOMI[pl.name]], ...(PLACE_ALIAS[pl.name] || [])]);
+    });
+    const placeNames = new Set(places.map((p) => p.name));
+    Object.entries(nodes).forEach(([id, n]) => {
+      if (n.type === "ic" && placeNames.has(n.name)) return; // 地名と同じ名前の出入口は地名に任せる
+      const base = n.name.replace(/JCT$/, "");
+      const kindLabel = n.type === "jct" ? "JCT" : n.type === "end" ? "接続" : "出入口";
+      add({ kind: "node", id, label: n.name, kindLabel, sub: n.ext ? `${n.ext}へ` : "", bonus: n.type === "ic" ? 0 : 0.01 },
+        [[n.name, null], [base, YOMI[base]], ...(n.ext ? [[n.ext.replace(/（.*?）/g, ""), null]] : []), ...(NODE_ALIAS[id] || [])]);
+    });
+    routes.forEach((r) => {
+      add({ kind: "route", id: r.id, label: r.name, bonus: 0.02 }, [[r.name, null], ...(ROUTE_ALIAS[r.id] || [])]);
+    });
+    return { entries, routes };
+  }
+
+  // texts：音声認識の候補（いくつかある）や入力文字。いちばん良い当たりを並べて返す
+  function search(index, texts, limit) {
+    const qs = [...new Set([].concat(texts).map(normalize).filter(Boolean))];
+    if (!qs.length) return [];
+    const best = new Map();
+    const put = (e, score, q) => {
+      const key = e.kind + ":" + e.id;
+      const cur = best.get(key);
+      if (!cur || cur.score < score) best.set(key, { ...e, score, q });
+    };
+    qs.forEach((q, qi) => {
+      const penalty = qi * 0.01; // 1番目の聞き取り結果を少し優先
+      // 路線番号として読めるか
+      const num = parseRouteNumber(q);
+      if (num) {
+        index.entries.filter((e) => e.kind === "route").forEach((e) => {
+          const id = e.id;
+          let hit = false;
+          if (num.pref === "K") hit = K_NUM[id] === num.n;
+          else if (num.pref === "S") hit = S_NUM[id] === num.n;
+          else if (num.pref === "C") hit = id === "C" + num.n;
+          else hit = ROUTE_NUM[id] === num.n;
+          if (hit) put(e, 0.99 - penalty, q);
+        });
+      }
+      index.entries.forEach((e) => {
+        let s = 0;
+        e.keys.forEach((k) => { s = Math.max(s, scoreKey(k, q)); });
+        if (s > 0) put(e, Math.min(1, s + e.bonus) - penalty, q);
+      });
+    });
+    return [...best.values()].filter((h) => h.score >= 0.5).sort((a, b) => b.score - a.score).slice(0, limit || 6);
+  }
+
+  // 上位の当たりのうち「一緒に見せるべきもの」（同じ番号の路線など）をまとめる
+  function pickTop(hits) {
+    if (!hits.length) return null;
+    const top = hits[0];
+    if (top.score < 0.65) return null; // 自信がないときは候補を並べるだけにする
+    const same = hits.filter((h) => h.kind === top.kind && Math.abs(h.score - top.score) < 0.005);
+    return top.kind === "route" ? same : [top];
+  }
+
+  window.SHUTO_SEARCH = { createIndex, search, pickTop, normalize, parseRouteNumber };
+})();
