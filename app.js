@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "v4"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
+  const APP_VERSION = "v5"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
   const D = window.SHUTO_DATA;
   const N = D.nodes;
   const ROUTES = D.routes;
@@ -444,6 +444,7 @@
     gRouteName.querySelectorAll(".route-name").forEach((t) => t.classList.toggle("on", on.has(t.getAttribute("data-route"))));
     document.querySelectorAll(".legend-item").forEach((b) => b.classList.toggle("active", on.has(b.dataset.route)));
     document.querySelectorAll(".line-item").forEach((li) => li.classList.toggle("active", on.has(li.dataset.route)));
+    document.querySelectorAll(".route-chip").forEach((b) => { b.classList.toggle("active", on.has(b.dataset.route)); b.setAttribute("aria-pressed", String(on.has(b.dataset.route))); });
     // 既定は「全体のまま強調」。設定で「路線を選んだら拡大」にしたときだけ寄る
     if (ids.length && zoomOnRoute) fit([...new Set(ids.flatMap((id) => R[id].seq.map((s) => s[0])))], 50);
   }
@@ -551,9 +552,13 @@
 
   function runSearch() {
     const s = $("from").value, g = $("to").value;
-    try { localStorage.setItem("shuto-from", s); localStorage.setItem("shuto-to", g); } catch (e) { /* 保存できなくても動く */ }
     const out = $("result");
     highlightRoute(null);
+    if (!s || !g) {
+      out.innerHTML = s || g ? `<p class="muted route-hint">${s ? "目的地" : "出発地"}も選ぶと、ルートを地図に表示します。</p>` : "";
+      drawPath(null);
+      return;
+    }
     if (s === g) { out.innerHTML = `<p class="warn">出発と目的地が同じです。</p>`; drawPath(null); return; }
     const path = findRoute(s, g);
     if (!path) { out.innerHTML = `<p class="warn">ルートが見つかりませんでした（方向制限のため）。</p>`; drawPath(null); return; }
@@ -611,14 +616,18 @@
       items.sort((a, b) => a.t.localeCompare(b.t, "ja"));
       return `<optgroup label="${esc(label)}">${items.map((o) => `<option value="${o.id}">${esc(o.t)}</option>`).join("")}</optgroup>`;
     }).join("");
-    $("from").innerHTML = html;
-    $("to").innerHTML = html;
-    let f = "yoga", t = "misato";
-    try { f = localStorage.getItem("shuto-from") || f; t = localStorage.getItem("shuto-to") || t; } catch (e) { /* 既定値を使う */ }
-    $("from").value = N[f] ? f : "yoga";
-    $("to").value = N[t] ? t : "misato";
+    // 何も選んでいない状態から始める（選ぶまで地図にルートは出さない）
+    $("from").innerHTML = `<option value="">出発地を選んでください</option>` + html;
+    $("to").innerHTML = `<option value="">目的地を選んでください</option>` + html;
+    $("from").value = "";
+    $("to").value = "";
   }
-  $("search").onclick = () => { runSearch(); openSheet(); };
+  $("search").onclick = () => {
+    if (!$("from").value || !$("to").value) { runSearch(); $("result").innerHTML = `<p class="warn">出発地と目的地を選んでください。</p>`; return; }
+    runSearch(); openSheet();
+  };
+  // ルートを消して、何も選んでいない状態に戻す
+  $("clearRoute").onclick = () => { $("from").value = ""; $("to").value = ""; $("result").innerHTML = ""; drawPath(null); markSelected(null); };
   $("swap").onclick = () => { const a = $("from").value; $("from").value = $("to").value; $("to").value = a; runSearch(); };
 
   // ---------- 地点情報 ----------
@@ -692,6 +701,27 @@
       b.onmouseleave = () => { svg.classList.remove("peek"); svg.querySelectorAll(".peek-on").forEach((x) => x.classList.remove("peek-on")); };
     });
   }
+
+  // ---------- 地図上の路線選択カード（「路線」ボタンで開閉） ----------
+  // パネルを開かずに、地図を見たまま路線を切り替えて強調できる
+  function shortRouteName(r) {
+    return r.name.replace(/（.*?）/g, "").replace(/^神奈川\d+号/, "").replace(/^\d+号/, "").replace(/線$/, "");
+  }
+  function renderRoutePicker() {
+    $("routeChips").innerHTML = GROUPS.map((g) => g.ids.filter((id) => R[id]).map((id) =>
+      `<button type="button" class="route-chip${R[id].external ? " ext" : ""}" data-route="${id}" aria-pressed="false" title="${esc(R[id].name)}">${badge(id)}<span class="chip-name">${esc(shortRouteName(R[id]))}</span></button>`
+    ).join("")).join("");
+    $("routeChips").querySelectorAll(".route-chip").forEach((b) => (b.onclick = () => highlightRoute(activeRoute === b.dataset.route ? null : b.dataset.route)));
+  }
+  function setRoutePicker(open) {
+    $("routePicker").hidden = !open;
+    $("routePick").setAttribute("aria-expanded", String(open));
+    $("routePick").classList.toggle("active", open);
+    document.querySelector(".map-wrap").classList.toggle("picker-open", open);
+  }
+  $("routePick").onclick = () => setRoutePicker($("routePicker").hidden);
+  $("routeClear").onclick = () => highlightRoute(null);
+  $("routePickClose").onclick = () => setRoutePicker(false);
 
   // ---------- 表示切り替え ----------
   document.querySelectorAll(".map-layers input").forEach((cb) => {
@@ -885,7 +915,7 @@
   renderLines();
   renderLegend();
   renderBasics();
-  runSearch();
+  renderRoutePicker();
   // アドレスに ?q=新宿 のように付けて開くと、その言葉で探す
   const q0 = new URLSearchParams(location.search).get("q");
   if (q0) { $("q").value = q0; doSearch([q0], q0); }

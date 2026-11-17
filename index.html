@@ -49,6 +49,15 @@
         <button type="button" id="zoomReset" aria-label="全体を表示">全体</button>
         <button type="button" id="zoomCenter" aria-label="都心を拡大">都心</button>
         <button type="button" id="placeMode" class="mode-btn" aria-pressed="false" aria-label="主要地名を強調する地名モード">地名</button>
+        <button type="button" id="routePick" class="mode-btn" aria-expanded="false" aria-controls="routePicker" aria-label="路線を選んで強調する">路線</button>
+      </div>
+      <div class="route-picker" id="routePicker" hidden aria-label="路線を選んで強調">
+        <div class="route-picker-head">
+          <span class="route-picker-title">路線を選ぶ</span>
+          <button type="button" class="route-picker-btn" id="routeClear">解除</button>
+          <button type="button" class="route-picker-btn" id="routePickClose" aria-label="閉じる">×</button>
+        </div>
+        <div class="route-chips" id="routeChips"></div>
       </div>
       <button type="button" class="map-overlay-btn" id="overlayToggle" aria-expanded="false" aria-label="凡例と表示切り替えを開く">凡例</button>
       <p class="map-hint">ドラッグで移動・ホイール/ピンチで拡大。地点をタップすると分岐の行き先が出ます。</p>
@@ -74,6 +83,7 @@
           <select id="to"></select>
         </div>
         <button type="button" id="search" class="primary">ルートを表示</button>
+        <button type="button" id="clearRoute" class="small-btn clear-route">ルートを消す</button>
         <div id="result"></div>
       </div>
 
