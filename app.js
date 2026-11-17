@@ -1,6 +1,7 @@
 (function () {
   "use strict";
 
+  const APP_VERSION = "v4"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
   const D = window.SHUTO_DATA;
   const N = D.nodes;
   const ROUTES = D.routes;
@@ -766,6 +767,7 @@
       <h3>最近の変更（データ確認日：${esc(D.checkedAt)}）</h3>
       ${(D.notices || []).map((n) => `<p class="notice"><b>${esc(n.date)}</b>${esc(n.text)}</p>`).join("")}
       <h3>このツールについて</h3>
+      <p class="muted" style="font-size:13px">アプリの版：${APP_VERSION}（データ確認日：${esc(D.checkedAt)}）</p>
       <ul class="muted" style="font-size:13px">
         <li>位置関係をつかむための簡易図です。距離・形は実際と異なります（中心部を拡大して表示）。</li>
         <li>JCTの方向制限は、資料で確認できたものだけ反映しています。出入口の向き（片方向のみの出入口）は扱っていません。</li>
@@ -889,9 +891,25 @@
   if (q0) { $("q").value = q0; doSearch([q0], q0); }
 
   // ---------- オフライン対応（PWA） ----------
+  // 公開するときは sw.js の VERSION と同じ値に上げる
   // 開発中（localhost）は古いファイルが残らないよう登録しない。?sw=1 を付けると試せる。
   const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   if ("serviceWorker" in navigator && location.protocol !== "file:" && (!isLocal || /[?&]sw=1/.test(location.search))) {
-    navigator.serviceWorker.register("sw.js").catch(() => { /* 登録できなくても通常どおり動く */ });
+    // 新しい版が公開されたら自動で入れ替える：
+    // 開いたとき・ホーム画面から戻ってきたとき・30分ごとに更新を確認し、
+    // 新しい版に切り替わったら画面を1回だけ読み直す
+    let hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController) { hadController = true; return; } // 初めて入れたときは読み直さない
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg) => {
+      const check = () => reg.update().catch(() => { /* 電波がなければ次の機会に */ });
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+      setInterval(check, 30 * 60 * 1000);
+    }).catch(() => { /* 登録できなくても通常どおり動く */ });
   }
 })();
