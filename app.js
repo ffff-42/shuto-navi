@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "v6"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
+  const APP_VERSION = "v7"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
   const D = window.SHUTO_DATA;
   const N = D.nodes;
   const ROUTES = D.routes;
@@ -133,6 +133,7 @@
   const gGeo = el("g", { class: "layer layer-geo" }, svg);
   const gArea = el("g", { class: "layer layer-areas" }, svg);
   const gClosed = el("g", { class: "layer layer-closed" }, svg);
+  const gXway = el("g", { class: "layer layer-xways" }, svg);
   const gPath = el("g", { class: "layer layer-path" }, svg);
   const gEdge = el("g", { class: "layer layer-edges" }, svg);
   const gRouteName = el("g", { class: "layer layer-routenames" }, svg);
@@ -167,6 +168,39 @@
     el("line", { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y, class: "edge closed" }, gClosed);
     const t = el("text", { x: (p1.x + p2.x) / 2 - 4, y: (p1.y + p2.y) / 2, class: "closed-lbl", "text-anchor": "end" }, gClosed);
     t.textContent = "八重洲線 通行止め";
+  });
+
+  // 首都高の外の高速道路（参考）：つながる地点から外へ向かう短い線と、行き先の名前
+  const XWAYS = (D.expressways || []).filter((x) => N[x.from]);
+  const XWAY_FROM = new Set(XWAYS.flatMap((x) => [x.from, x.via].filter(Boolean)));
+  const XWAY_STUB = 30; // 外へ伸ばす長さ（地図の単位）。実際の長さで描くと全体表示が広がりすぎるので短くそろえる
+  XWAYS.forEach((x) => {
+    let pts = x.pts.map(([la, lo]) => proj(la, lo));
+    pts[0] = N[x.from].p; // 起点は地図上の地点にぴったり合わせる
+    // via があれば、そこまでは実際の位置のまま（地点に合わせる）、その先だけ短くする
+    let k = 0;
+    if (x.via && N[x.via]) {
+      const v = N[x.via];
+      k = x.pts.reduce((bi, [la, lo], i) => (Math.hypot(la - v.lat, lo - v.lon) < Math.hypot(x.pts[bi][0] - v.lat, x.pts[bi][1] - v.lon) ? i : bi), 0);
+      pts[k] = v.p;
+    }
+    let L = 0;
+    for (let i = k + 1; i < pts.length; i++) L += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    const f = L > XWAY_STUB ? XWAY_STUB / L : 1, o = pts[k];
+    pts = pts.map((p, i) => (i <= k ? p : { x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f }));
+    const g = el("g", { class: "xway", "data-from": x.from }, gXway);
+    el("polyline", { points: pts.map((p) => `${p.x},${p.y}`).join(" "), class: "xway-line" }, g);
+    // 線の先に「名前」と「▶行き先」を2行で。線の向きに合わせて文字の寄せ方を変える
+    const a = pts[k], b = pts[pts.length - 1];
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
+    const anchor = ux > 0.4 ? "start" : ux < -0.4 ? "end" : "middle";
+    const tx = b.x + ux * 4;
+    // 1行目の位置：北向きは線の上に2行、南向きは線の下に2行、横向きは線の先で上下中央
+    const ty = uy < -0.4 ? b.y - 15 : uy > 0.4 ? b.y + 10 : b.y - 2;
+    const t = el("text", { x: tx, y: ty, "text-anchor": anchor, class: "xway-lbl" }, g);
+    const t1 = el("tspan", { class: "xway-name", x: tx }, t); t1.textContent = x.name;
+    const t2 = el("tspan", { class: "xway-dest", x: tx, dy: 10 }, t); t2.textContent = "▶" + x.dest;
+    x.end = b;
   });
 
   // 路線
@@ -236,10 +270,17 @@
     // 主要地名と同じ名前の出入口は、地名ラベルに任せて名前を書かない
     if (n.type === "ic" && GEO.places.some((pl) => pl.name === n.name)) return;
     const [ox, oy, anchor] = LP[n.lp || "r"];
-    const t = el("text", { x: x + ox, y: y + oy, "text-anchor": anchor, class: "lbl " + n.type + (n.type === "ic" ? " exit" : "") + (n.minor ? " minor" : "") }, gLabel);
+    // 地名モードでは出入口の名前も地名として出す。ただし近くの主要地名と同じ場所を指すもの
+    // （台場とお台場、舞浜と舞浜・浦安、空港中央と羽田空港など）は、主要地名に任せて出さない
+    const nearPlace = n.type === "ic" && GEO.places.some((pl) => {
+      const q = proj(pl.lat, pl.lon), d = Math.hypot(q.x - x, q.y - y);
+      const share = pl.name.includes(n.name) || n.name.includes(pl.name) || [...n.name].some((c, k) => k < n.name.length - 1 && pl.name.includes(n.name.slice(k, k + 2)));
+      return d < 10 || (share && d < 40);
+    });
+    const t = el("text", { x: x + ox, y: y + oy, "text-anchor": anchor, class: "lbl " + n.type + (n.type === "ic" ? " exit" : "") + (n.minor ? " minor" : "") + (nearPlace ? " near-place" : "") }, gLabel);
     const t1 = el("tspan", {}, t);
     t1.textContent = n.name;
-    if (n.type === "end" && n.dest && n.dest !== n.name) {
+    if (n.type === "end" && n.dest && n.dest !== n.name && !XWAY_FROM.has(n.id)) {
       const t2 = el("tspan", { class: "ext-name" }, t);
       t2.textContent = " ▶" + n.dest;
     }
@@ -270,7 +311,17 @@
     });
     return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 };
   }
-  const FULL = bboxOf(Object.keys(N), 70);
+  const FULL = (function () {
+    const b = bboxOf(Object.keys(N), 70);
+    let x0 = b.x, y0 = b.y, x1 = b.x + b.w, y1 = b.y + b.h;
+    // 外の高速の名前と、地図の端にある地点名が切れないよう、文字の実際の範囲（＋少しの余白）まで広げる
+    [...gXway.querySelectorAll(".xway-lbl"), ...gLabel.querySelectorAll(".lbl.end")].forEach((t) => {
+      let r; try { r = t.getBBox(); } catch (e) { return; }
+      if (!r || !r.width) return;
+      x0 = Math.min(x0, r.x - 8); x1 = Math.max(x1, r.x + r.width + 8); y0 = Math.min(y0, r.y - 8); y1 = Math.max(y1, r.y + r.height + 8);
+    });
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  })();
   let view = { ...FULL };
   function setView(v) {
     const minW = 60, maxW = FULL.w * 2.5;

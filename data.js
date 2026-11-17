@@ -49,7 +49,7 @@ window.SHUTO_DATA = {
     sachiura:     { name: "幸浦", type: "end", lat: 35.3500, lon: 139.6300, dest: "横横道路", ext: "横浜横須賀道路（並木）", lp: "r" },
     shinyokohama: { name: "新横浜", type: "ic", lat: 35.5080, lon: 139.6250, dest: "新横浜", lp: "b", minor: true },
     kohokujct:    { name: "横浜港北JCT", type: "jct", lat: 35.5170, lon: 139.6040, dest: "第三京浜", ext: "第三京浜", lp: "l" },
-    aoba:         { name: "横浜青葉JCT", type: "end", lat: 35.5460, lon: 139.5390, dest: "東名", ext: "東名高速（横浜青葉）", lp: "l" },
+    aoba:         { name: "横浜青葉JCT", type: "end", lat: 35.5460, lon: 139.5390, dest: "東名", ext: "東名高速（横浜青葉）", lp: "t" },
 
     // ---- 2号目黒線 ----
     meguro:  { name: "目黒", type: "ic", lat: 35.6320, lon: 139.7110, dest: "目黒", lp: "l" },
@@ -64,7 +64,7 @@ window.SHUTO_DATA = {
     shinjuku:      { name: "新宿", type: "ic", lat: 35.6840, lon: 139.7000, dest: "新宿", lp: "t" },
     nishishinjuku: { name: "西新宿JCT", type: "jct", lat: 35.6830, lon: 139.6830, dest: "新宿・中央道", lp: "tl" },
     eifuku:        { name: "永福", type: "ic", lat: 35.6770, lon: 139.6420, dest: "永福", lp: "b", minor: true },
-    takaido:       { name: "高井戸", type: "end", lat: 35.6830, lon: 139.6150, dest: "中央道", ext: "中央道", lp: "l" },
+    takaido:       { name: "高井戸", type: "end", lat: 35.6830, lon: 139.6150, dest: "中央道", ext: "中央道", lp: "t" },
 
     // ---- 5号池袋線・埼玉大宮線 ----
     iidabashi:        { name: "飯田橋", type: "ic", lat: 35.7020, lon: 139.7450, dest: "飯田橋", lp: "l", minor: true },
@@ -96,7 +96,7 @@ window.SHUTO_DATA = {
 
     // ---- 7号小松川線 ----
     kinshicho: { name: "錦糸町", type: "ic", lat: 35.6950, lon: 139.8170, dest: "錦糸町", lp: "t", minor: true },
-    shinozaki: { name: "篠崎", type: "end", lat: 35.7030, lon: 139.8970, dest: "京葉道路", ext: "京葉道路（千葉方面）", lp: "r" },
+    shinozaki: { name: "篠崎", type: "end", lat: 35.7030, lon: 139.8970, dest: "京葉道路", ext: "京葉道路（千葉方面）", lp: "b" },
 
     // ---- 9号深川線・10号晴海線・11号台場線 ----
     kiba:      { name: "木場", type: "ic", lat: 35.6720, lon: 139.8070, dest: "木場", lp: "r", minor: true },
@@ -110,7 +110,7 @@ window.SHUTO_DATA = {
     // ---- 湾岸線（東側） ----
     shinkiba: { name: "新木場", type: "ic", lat: 35.6430, lon: 139.8300, dest: "新木場", lp: "b", minor: true },
     maihama:  { name: "舞浜", type: "ic", lat: 35.6380, lon: 139.8850, dest: "浦安", lp: "b" },
-    koya:     { name: "高谷JCT", type: "end", lat: 35.6870, lon: 139.9500, dest: "東関東道", ext: "東関東道（千葉・成田）・外環道", lp: "r" },
+    koya:     { name: "高谷JCT", type: "end", lat: 35.6870, lon: 139.9500, dest: "東関東道", ext: "東関東道（千葉・成田）・外環道", lp: "tr" },
 
     // ---- 外環道（NEXCO・参考） ----
     oizumi: { name: "大泉JCT", type: "end", lat: 35.7540, lon: 139.5900, dest: "関越道", ext: "関越道", lp: "l" }
@@ -299,6 +299,23 @@ window.SHUTO_DATA = {
   // 通行止め・廃止区間（地図に点線で表示、経路探索には使わない）
   closed: [
     { name: "八重洲線（通行止め・2035年度まで予定）", from: { lat: 35.6895, lon: 139.7660 }, to: { lat: 35.6730, lon: 139.7640 } }
+  ],
+
+  // 首都高の外の高速道路（参考）：どのJCT・出入口から、どちらへ向かうかが分かる程度の短い線だけ描く。
+  // from：つながる首都高側の地点、pts：線の通り道（最初が from の位置）、dest：向かう先（線の先に表示）
+  // via：途中で通る首都高側の地点（そこまでは実際の位置で描き、その先だけ短くする）
+  expressways: [
+    { name: "東北道", dest: "宇都宮", from: "kawaguchi", pts: [[35.843, 139.759], [35.885, 139.735], [35.930, 139.722]] },
+    { name: "常磐道", dest: "水戸", from: "misato", pts: [[35.840, 139.865], [35.872, 139.912], [35.898, 139.952]] },
+    { name: "関越道", dest: "新潟", from: "oizumi", pts: [[35.754, 139.590], [35.790, 139.515], [35.825, 139.470]] },
+    { name: "中央道", dest: "甲府", from: "takaido", pts: [[35.683, 139.615], [35.662, 139.555], [35.668, 139.495]] },
+    { name: "東名", dest: "名古屋", from: "yoga", via: "aoba", pts: [[35.629, 139.631], [35.588, 139.578], [35.546, 139.539], [35.515, 139.480]] },
+    { name: "第三京浜", dest: "玉川", from: "kohokujct", pts: [[35.517, 139.604], [35.560, 139.625], [35.605, 139.648]] },
+    { name: "第三京浜", dest: "保土ヶ谷", from: "kohokujct", pts: [[35.517, 139.604], [35.470, 139.580]] },
+    { name: "保土ヶ谷BP", dest: "横浜町田", from: "kariba", pts: [[35.424, 139.585], [35.455, 139.545], [35.488, 139.505]] },
+    { name: "横横道路", dest: "横須賀", from: "kariba", pts: [[35.424, 139.585], [35.375, 139.598], [35.320, 139.610]] },
+    { name: "京葉道路", dest: "千葉", from: "shinozaki", pts: [[35.703, 139.897], [35.712, 139.935], [35.700, 139.990]] },
+    { name: "東関東道", dest: "成田", from: "koya", pts: [[35.687, 139.950], [35.668, 140.000], [35.672, 140.050]] }
   ],
 
   // 地図の背景ラベル
