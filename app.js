@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "v7"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
+  const APP_VERSION = "v8"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
   const D = window.SHUTO_DATA;
   const N = D.nodes;
   const ROUTES = D.routes;
@@ -173,11 +173,12 @@
   // 首都高の外の高速道路（参考）：つながる地点から外へ向かう短い線と、行き先の名前
   const XWAYS = (D.expressways || []).filter((x) => N[x.from]);
   const XWAY_FROM = new Set(XWAYS.flatMap((x) => [x.from, x.via].filter(Boolean)));
-  const XWAY_STUB = 30; // 外へ伸ばす長さ（地図の単位）。実際の長さで描くと全体表示が広がりすぎるので短くそろえる
+  const XWAY_LEN = 85, XWAY_TAIL = 45, XWAY_LBL = 26; // 外へ伸ばす長さ・その先の薄い部分・名前を置く位置（地図の単位）
+  // 名前は線の先ではなく線の横に置く。全体表示の範囲には名前だけを入れ、線の先は画面の外へはみ出してよい
   XWAYS.forEach((x) => {
     let pts = x.pts.map(([la, lo]) => proj(la, lo));
     pts[0] = N[x.from].p; // 起点は地図上の地点にぴったり合わせる
-    // via があれば、そこまでは実際の位置のまま（地点に合わせる）、その先だけ短くする
+    // via があれば、そこまでは実際の位置のまま（地点に合わせる）、その先を決まった長さにそろえる
     let k = 0;
     if (x.via && N[x.via]) {
       const v = N[x.via];
@@ -186,21 +187,34 @@
     }
     let L = 0;
     for (let i = k + 1; i < pts.length; i++) L += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-    const f = L > XWAY_STUB ? XWAY_STUB / L : 1, o = pts[k];
+    const f = (XWAY_LEN + XWAY_TAIL) / (L || 1), o = pts[k];
     pts = pts.map((p, i) => (i <= k ? p : { x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f }));
+    // 起点（via）から d の位置の点と向き
+    const at = (d) => {
+      for (let i = k + 1; i < pts.length; i++) {
+        const p = pts[i - 1], q = pts[i], sl = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+        if (d <= sl || i === pts.length - 1) { const r = Math.min(d / sl, 1); return { x: p.x + (q.x - p.x) * r, y: p.y + (q.y - p.y) * r, ux: (q.x - p.x) / sl, uy: (q.y - p.y) / sl, i }; }
+        d -= sl;
+      }
+    };
+    const cut = at(XWAY_LEN);
+    const main = [...pts.slice(0, cut.i), cut], tail = [cut, ...pts.slice(cut.i)];
+    const line = (arr) => arr.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
     const g = el("g", { class: "xway", "data-from": x.from }, gXway);
-    el("polyline", { points: pts.map((p) => `${p.x},${p.y}`).join(" "), class: "xway-line" }, g);
-    // 線の先に「名前」と「▶行き先」を2行で。線の向きに合わせて文字の寄せ方を変える
-    const a = pts[k], b = pts[pts.length - 1];
-    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
-    const anchor = ux > 0.4 ? "start" : ux < -0.4 ? "end" : "middle";
-    const tx = b.x + ux * 4;
-    // 1行目の位置：北向きは線の上に2行、南向きは線の下に2行、横向きは線の先で上下中央
-    const ty = uy < -0.4 ? b.y - 15 : uy > 0.4 ? b.y + 10 : b.y - 2;
+    el("polyline", { points: line(tail), class: "xway-line xway-tail", stroke: x.color || "#888" }, g);
+    el("polyline", { points: line(main), class: "xway-line", stroke: x.color || "#888" }, g);
+    // 線の横に「名前」と「▶行き先」を2行で。横向きの線は上に、縦向きの線は side（既定は右）に置く
+    const m = at(XWAY_LBL);
+    let nx = -m.uy, ny = m.ux; // 進む向きの左手
+    const wantUp = Math.abs(m.ux) > 0.6;
+    const side = x.side || "r";
+    if (wantUp ? ny > 0 : (side === "r" ? nx < 0 : nx > 0)) { nx = -nx; ny = -ny; }
+    const tx = m.x + nx * 7, by = m.y + ny * 7;
+    const anchor = nx > 0.35 ? "start" : nx < -0.35 ? "end" : "middle";
+    const ty = ny < -0.35 ? by - 13 : ny > 0.35 ? by + 8 : by - 2;
     const t = el("text", { x: tx, y: ty, "text-anchor": anchor, class: "xway-lbl" }, g);
-    const t1 = el("tspan", { class: "xway-name", x: tx }, t); t1.textContent = x.name;
+    const t1 = el("tspan", { class: "xway-name", x: tx, fill: x.color || "currentColor" }, t); t1.textContent = x.name;
     const t2 = el("tspan", { class: "xway-dest", x: tx, dy: 10 }, t); t2.textContent = "▶" + x.dest;
-    x.end = b;
   });
 
   // 路線
@@ -219,29 +233,8 @@
     });
   });
 
-  // 路線名（線に沿って書く）：その路線で一番長い区間に置く
-  ROUTES.forEach((r) => {
-    const s = r.seq.map((x) => x[0]);
-    if (r.ring) s.push(s[0]);
-    let best = null;
-    for (let i = 1; i < s.length; i++) {
-      const a = N[s[i - 1]].p, b = N[s[i]].p;
-      const len = Math.hypot(b.x - a.x, b.y - a.y);
-      if (!best || len > best.len) best = { a, b, len };
-    }
-    if (!best || best.len < (TMAP.routeNameMinLen || 40)) return;
-    let ang = (Math.atan2(best.b.y - best.a.y, best.b.x - best.a.x) * 180) / Math.PI;
-    if (ang > 90) ang -= 180;
-    if (ang < -90) ang += 180;
-    const x = best.a.x + (best.b.x - best.a.x) * 0.62, y = best.a.y + (best.b.y - best.a.y) * 0.62;
-    const t = el("text", {
-      x, y, dy: -6, transform: `rotate(${ang.toFixed(1)} ${x} ${y})`,
-      class: "route-name" + (r.external ? " ext" : ""), "data-route": r.id, fill: r.color
-    }, gRouteName);
-    t.textContent = r.name;
-  });
-
   // 路線番号タグ
+  const TAGS = [];
   ROUTES.forEach((r) => {
     const s = r.seq;
     const i = Math.max(1, Math.floor(s.length / 2));
@@ -249,6 +242,7 @@
     const x = (pa.x + pb.x) / 2, y = (pa.y + pb.y) / 2;
     const txt = tagText(r);
     const w = 8 + txt.length * 7;
+    TAGS.push({ x, y, w });
     const g = el("g", { class: "route-tag", "data-route": r.id }, gTag);
     el("rect", { x: x - w / 2, y: y - 8, width: w, height: 16, rx: 4, fill: r.color }, g);
     const t = el("text", { x, y }, g);
@@ -300,6 +294,62 @@
     used.forEach((rid, k) => {
       el("rect", { x: pl.p.x - total / 2 + k * w, y: pl.p.y + 5, width: w - 1, height: 3.5, rx: 1, fill: R[rid].color, class: "place-route", "data-place": i }, g);
     });
+  });
+
+  // 路線名（線に沿って書く）：長い区間の中で、番号タグや地点とぶつからない場所を選ぶ
+  const NODE_PTS = Object.values(N).map((n) => n.p);
+  // 地点の名前（描いたあとの実際の大きさ）も避ける
+  const LBL_BOXES = [];
+  gLabel.querySelectorAll(".lbl").forEach((t) => {
+    try { const b = t.getBBox(); if (b.width) LBL_BOXES.push(b); } catch (e) { /* 表示前は測れない */ }
+  });
+  ROUTES.forEach((r) => {
+    const s = r.seq.map((x) => x[0]);
+    if (r.ring) s.push(s[0]);
+    const segs = [];
+    for (let i = 1; i < s.length; i++) {
+      const a = N[s[i - 1]].p, b = N[s[i]].p;
+      segs.push({ a, b, len: Math.hypot(b.x - a.x, b.y - a.y) });
+    }
+    segs.sort((p, q) => q.len - p.len);
+    const minLen = TMAP.routeNameMinLen || 40;
+    if (!segs.length || segs[0].len < minLen) return;
+    const half = r.name.length * 4.8 + 2; // 文字の長さの半分（9〜10px の文字）
+    let best = null;
+    segs.filter((g) => g.len >= minLen).forEach((g, si) => {
+      // 文字は左から右へ読む向きに回すので、その向き（右向き）にそろえる。「線の上」はこの向きの左手側
+      let ux = (g.b.x - g.a.x) / g.len, uy = (g.b.y - g.a.y) / g.len;
+      if (ux < 0) { ux = -ux; uy = -uy; }
+      [0.62, 0.5, 0.38, 0.75, 0.25].forEach((tt, ti) => {
+        // 文字の中心（線から少し上にずらして書くので、その分も見込む）
+        const cx = g.a.x + (g.b.x - g.a.x) * tt, cy = g.a.y + (g.b.y - g.a.y) * tt;
+        const hit = (px, py, ext, perp) => {
+          const vx = px - cx, vy = py - cy;
+          return Math.abs(vx * ux + vy * uy) < half + ext && Math.abs(-vx * uy + vy * ux) < perp;
+        };
+        let bad = 0, tag = false;
+        TAGS.forEach((tg) => { if (hit(tg.x, tg.y, tg.w / 2 + 3, 18)) { bad += 3; tag = true; } });
+        NODE_PTS.forEach((p) => { if (hit(p.x, p.y, 3, 12)) bad += 1; });
+        // 名前の帯（線の上 2〜12）の数か所が、地点の名前の枠に入るか
+        for (let q = -1; q <= 1; q += 0.5) {
+          const px = cx + ux * half * q + uy * 7, py = cy + uy * half * q - ux * 7; // 線の上側（文字の中心あたり）
+          if (LBL_BOXES.some((b) => px > b.x - 2 && px < b.x + b.width + 2 && py > b.y - 2 && py < b.y + b.height + 2)) bad += 1;
+        }
+        const score = bad * 1000 + si * 10 + ti;
+        if (!best || score < best.score) best = { score, g, tt, tag };
+      });
+    });
+    const { g, tt, tag } = best;
+    let ang = (Math.atan2(g.b.y - g.a.y, g.b.x - g.a.x) * 180) / Math.PI;
+    if (ang > 90) ang -= 180;
+    if (ang < -90) ang += 180;
+    const x = g.a.x + (g.b.x - g.a.x) * tt, y = g.a.y + (g.b.y - g.a.y) * tt;
+    const t = el("text", {
+      // 短い路線などで番号タグをよけきれないときは、タグの上に出るよう線から少し離す
+      x, y, dy: tag ? -12 : -6, transform: `rotate(${ang.toFixed(1)} ${x} ${y})`,
+      class: "route-name" + (r.external ? " ext" : ""), "data-route": r.id, fill: r.color
+    }, gRouteName);
+    t.textContent = r.name;
   });
 
   // ---------- 表示範囲（パン・ズーム） ----------

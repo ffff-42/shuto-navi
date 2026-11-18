@@ -386,16 +386,17 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
 /* 羽田空港は主要地名レイヤーを使い、背景の同名ラベルとの二重表示を防ぐ。 */
 .area.place { display: none; }
 .palace-dot { fill: var(--place-bg); opacity: .8; }
-/* 接続先の高速は、外環道の破線より細いグレーの参考線で示す。 */
+/* 接続先の高速（Claude Code 追記 v8）：色は data.js の color を線に直接入れる。首都高より細く、先の方は破線で薄く消える。 */
 .xway-line {
   fill: none;
-  stroke: var(--muted);
-  stroke-width: 1.4;
+  stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: .65;
+  opacity: .9;
   pointer-events: none;
+  filter: brightness(var(--route-brightness));
 }
+.xway-tail { stroke-width: 2.6; stroke-dasharray: 6 4; opacity: .45; }
 .xway-lbl {
   fill: var(--muted);
   font-size: 9.5px;
@@ -406,10 +407,12 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
   stroke-linejoin: round;
   pointer-events: none;
 }
-.xway-name { font-weight: 700; }
-.xway-dest { fill: color-mix(in srgb, var(--muted) 85%, var(--map-bg)); font-weight: 400; }
+.xway-name { font-weight: 800; filter: brightness(var(--route-brightness)); }
+.xway-dest { fill: var(--muted); font-weight: 500; }
 #map.dim .xway-line,
-#map.place-mode .xway-line { opacity: .4; }
+#map.place-mode .xway-line { opacity: .45; }
+#map.dim .xway-tail,
+#map.place-mode .xway-tail { opacity: .25; }
 #map.dim .xway-lbl,
 #map.place-mode .xway-lbl { opacity: .85; }
 .edge { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; filter: brightness(var(--route-brightness)); }
@@ -759,8 +762,11 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
 #map.place-mode .place.tier-4 { display: inline; }
 #map.place-mode .lbl.ic.near-place,
 #map.place-mode.far .lbl.ic.minor,
-#map.place-mode .lbl.jct.minor,
-#map.place-mode .layer-routenames { display: none; }
+#map.place-mode .lbl.jct.minor { display: none; }
+/* Claude Code 追記 v8：地名モードでも路線名は出す（少しだけ控えめに） */
+#map.place-mode .route-name { opacity: .8; }
+#map.place-mode.dim .route-name:not(.on),
+#map.place-mode.peek .route-name:not(.peek-on) { opacity: .15; }
 
 /* 重複しない出入口名を、小さな地名と同じ文字の調子で残す。 */
 #map.place-mode .lbl.ic:not(.near-place) {
