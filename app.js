@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "v11"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
+  const APP_VERSION = "v12"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
   const D = window.SHUTO_DATA;
   const N = D.nodes;
   const ROUTES = D.routes;
@@ -851,7 +851,10 @@
     runSearch(); openSheet();
   };
   // ルートを消して、何も選んでいない状態に戻す
-  $("clearRoute").onclick = () => { $("from").value = ""; $("to").value = ""; $("result").innerHTML = ""; drawPath(null); markSelected(null); };
+  $("clearRoute").onclick = () => {
+    $("from").value = ""; $("to").value = ""; $("result").innerHTML = ""; drawPath(null); markSelected(null);
+    document.querySelectorAll(".field-hits").forEach((b) => { b.hidden = true; b.innerHTML = ""; });
+  };
   // 「現在地」は目的地には選べないので、入れ替えるときは目的地を空にする
   $("swap").onclick = () => { const a = $("from").value; $("from").value = $("to").value; $("to").value = a === HERE ? "" : a; runSearch(); };
 
@@ -1331,6 +1334,103 @@
     };
     try { rec.start(); } catch (e) { rec = null; micFallback("声の聞き取りを始められませんでした。"); }
   };
+
+  // ---------- 出発地・目的地を文字や声で探す ----------
+  // 地名は「その地名で使う出入口」（geo.js の access の文字）を地点に置き換える。見つからなければ近くの出入口。
+  function placeNodes(i) {
+    const pl = GEO.places[i], out = [];
+    pl.access.forEach(([rid, txt]) => {
+      txt.replace(/（.*?）/g, "").replace(/(出入口|入口|出口)/g, "").split(/[・、]/).forEach((nm) => {
+        nm = nm.trim();
+        if (!nm) return;
+        // 出入口として乗り降りできる地点だけ（同じ名前のJCTは乗り降りできないので除く）
+        const ok = Object.values(N).filter((x) => x.type !== "jct");
+        const n = ok.find((x) => x.name === nm) || ok.find((x) => x.name.startsWith(nm) || nm.startsWith(x.name));
+        if (n && !out.includes(n.id)) out.push(n.id);
+      });
+    });
+    if (!out.length) {
+      Object.values(N).filter((n) => n.type === "ic" || n.type === "end")
+        .map((n) => ({ n, d: Math.hypot(n.lat - pl.lat, (n.lon - pl.lon) * 0.81) }))
+        .sort((a, b) => a.d - b.d).slice(0, 2).forEach(({ n }) => out.push(n.id));
+    }
+    return out;
+  }
+  // 検索の当たりを、選べる地点（出入口・JCT・接続）の候補に直す
+  function hitsToNodes(hits) {
+    const out = [];
+    const add = (id, why) => { if (N[id] && !out.some((o) => o.id === id)) out.push({ id, why }); };
+    hits.forEach((h) => {
+      if (h.kind === "node") add(h.id, "");
+      else if (h.kind === "place") placeNodes(h.id).forEach((id) => add(id, `${GEO.places[h.id].name}の出入口`));
+    });
+    return out;
+  }
+  function nodeRouteText(id) {
+    return [...new Set(ROUTES.filter((r) => r.seq.some((x) => x[0] === id)).map((r) => tagText(r)))].join("・");
+  }
+  function fieldFind(form, texts, heard) {
+    const fid = form.dataset.for, box = form.nextElementSibling;
+    const hits = SEARCH.search(sIndex, texts, 8).filter((h) => h.kind !== "route");
+    const cands = hitsToNodes(hits).slice(0, 6);
+    const said = heard ? `「${heard}」` : "";
+    box.hidden = false;
+    if (!cands.length) { box.innerHTML = `<p class="field-msg">${esc(said)}に近い地名・出入口が見つかりませんでした。</p>`; return; }
+    const top = SEARCH.pickTop(hits);
+    const chips = (list) => list.map((c) => `<button type="button" class="field-hit" data-node="${c.id}"><span class="hit-name">${esc(placeName(c.id))}</span><span class="hit-sub">${esc([nodeRouteText(c.id), c.why].filter(Boolean).join("／"))}</span></button>`).join("");
+    if (top) {
+      choose(cands[0].id, false);
+      const rest = cands.slice(1);
+      box.innerHTML = `<p class="field-msg">${esc(said)}${said ? "→ " : ""}<b>${esc(placeName(cands[0].id))}</b> を選びました。${rest.length ? "ほかの候補：" : ""}</p>` + chips(rest);
+    } else {
+      box.innerHTML = `<p class="field-msg">${esc(said)}もしかして（タップで選ぶ）：</p>` + chips(cands);
+    }
+    box.querySelectorAll(".field-hit").forEach((b) => (b.onclick = () => { choose(b.dataset.node, true); }));
+    function choose(id, closeBox) {
+      $(fid).value = id;
+      form.querySelector("input").value = "";
+      if (closeBox) { box.innerHTML = `<p class="field-msg"><b>${esc(placeName(id))}</b> を選びました。</p>`; }
+      if ($("from").value && $("to").value) runSearch();
+    }
+  }
+  document.querySelectorAll(".field-find").forEach((form) => {
+    const input = form.querySelector("input"), mic = form.querySelector(".field-mic"), box = form.nextElementSibling;
+    form.addEventListener("submit", (e) => { e.preventDefault(); const v = input.value.trim(); if (v) { fieldFind(form, [v]); input.blur(); } });
+    // 一覧から直接選んだら、検索の案内は消す
+    $(form.dataset.for).addEventListener("change", () => { box.hidden = true; });
+    let frec = null;
+    const setOn = (on) => { mic.classList.toggle("listening", on); mic.setAttribute("aria-pressed", String(on)); };
+    const say = (msg) => { box.hidden = false; box.innerHTML = `<p class="field-msg">${esc(msg)}</p>`; };
+    mic.onclick = () => {
+      if (frec) { frec.stop(); return; }
+      if (!SR) { say("この画面では声の聞き取りが使えません。入力欄をタップして、キーボードのマイクで話しても探せます。"); input.focus(); return; }
+      if (rec) rec.stop();
+      frec = new SR();
+      frec.lang = "ja-JP";
+      frec.interimResults = true;
+      frec.maxAlternatives = 5;
+      let done = false;
+      frec.onstart = () => { setOn(true); say("聞いています… 地名や出入口名を話してください（例：「新宿」「羽田空港」）"); };
+      frec.onresult = (ev) => {
+        const r = ev.results[ev.results.length - 1];
+        const alts = Array.from({ length: r.length }, (_, i) => r[i].transcript).filter(Boolean);
+        input.value = alts[0] || "";
+        if (r.isFinal && !done) { done = true; fieldFind(form, alts, alts[0]); }
+      };
+      frec.onerror = (ev) => {
+        done = true;
+        if (ev.error === "no-speech") say("声が聞き取れませんでした。もう一度マイクを押してください。");
+        else if (ev.error === "not-allowed" || ev.error === "service-not-allowed") say("マイクの使用が許可されていません。入力欄をタップして、キーボードのマイクで話しても探せます。");
+        else if (ev.error !== "aborted") say("声の聞き取りがうまくいきませんでした。");
+      };
+      frec.onend = () => {
+        setOn(false);
+        if (!done && input.value.trim()) fieldFind(form, [input.value.trim()], input.value.trim());
+        frec = null;
+      };
+      try { frec.start(); } catch (e) { frec = null; setOn(false); say("声の聞き取りを始められませんでした。"); }
+    };
+  });
 
   // ---------- 起動 ----------
   setView({ ...FULL });

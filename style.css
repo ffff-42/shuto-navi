@@ -1496,3 +1496,43 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
 .loc-mark.stale .loc-dot, .loc-mark.stale .loc-arrow { fill: #9e9e9e; }
 .loc-mark.stale .loc-pulse { animation: none; opacity: 0; }
 @media (prefers-reduced-motion: reduce) { .loc-pulse { animation: none; opacity: .2; } }
+
+/* ===== 出発地・目的地を文字や声で探す（Claude Code 追記 v12） ===== */
+.field-find { display: flex; gap: 6px; margin: 0; }
+.field-find input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* iPhone で入力時に画面が拡大されないよう16px */
+}
+.field-find input::placeholder { color: var(--muted); font-size: 13px; }
+.field-find input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.field-find .field-mic { min-width: 48px; width: 48px; height: 44px; padding: 0; }
+.field-hits { display: flex; flex-wrap: wrap; gap: 6px; }
+.field-hits[hidden] { display: none; }
+.field-msg { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.field-msg b { color: var(--text); }
+.field-hit {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-height: 44px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--chip-bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.field-hit .hit-name { font-size: 13px; font-weight: 700; }
+.field-hit .hit-sub { font-size: 10.5px; color: var(--muted); }
+.field-hit:hover { border-color: var(--accent); background: var(--hover); }
