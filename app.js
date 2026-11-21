@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "v12"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
+  const APP_VERSION = "v13"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
   const D = window.SHUTO_DATA;
   const N = D.nodes;
   const ROUTES = D.routes;
@@ -987,37 +987,103 @@
   // iPhone の位置情報を、この簡略化した地図に合わせて表示する。位置は端末の中だけで使い、どこにも送らない。
   // 首都高の近くにいるときは、いちばん近い区間を探し、その区間の「何割進んだ所か」を地図の線の同じ割合の所に置く。
   // 試すとき：URL に ?loc=35.66,139.70 を付けると、その位置にいることにして表示する（パソコンでの確認用）
-  const LOC_SNAP_KM = 0.8;   // 首都高の線に寄せる距離（線は直線で描いているので少し広め）
+  const LOC_SNAP_KM = 0.8;   // 首都高の線に寄せる距離（道の形が無い区間。直線なので広め）
+  const LOC_SNAP_SHAPE_KM = 0.3; // 道の形がある区間（実際の道との距離なので狭め）
   const LOC_STALE_MS = 20000; // これより長く更新がなければ「最後の位置」（トンネルの中など）
   const km = (lat, lon) => ({ x: (lon - D.center.lon) * 90.3, y: (lat - D.center.lat) * 111 });
-  const LOC_EDGES = Object.values(edgeMap).map((e) => ({ e, A: km(N[e.a].lat, N[e.a].lon), B: km(N[e.b].lat, N[e.b].lon) }));
+  const LOC_EDGES = Object.values(edgeMap).map((e) => ({ e, A: km(N[e.a].lat, N[e.a].lon), B: km(N[e.b].lat, N[e.b].lon), shape: null }));
+  // 実際の道の形（roads.json：OpenStreetMap から作った、区間ごとの簡略な形）。現在地を使うときだけ読み込む。
+  // 地図の見た目には使わない。現在地が「区間の何km地点か」を出し、地図の線の同じ割合の所に置くためだけに使う。
+  let roadsLoading = null;
+  function decodePolyline(str) {
+    const out = []; let i = 0, la = 0, lo = 0;
+    while (i < str.length) {
+      const v = [0, 0];
+      for (let j = 0; j < 2; j++) {
+        let sh = 0, r = 0, b;
+        do { b = str.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32);
+        v[j] = r & 1 ? ~(r >> 1) : r >> 1;
+      }
+      la += v[0]; lo += v[1];
+      out.push([la / 1e5, lo / 1e5]);
+    }
+    return out;
+  }
+  function loadRoads() {
+    if (!roadsLoading) roadsLoading = fetch("roads.json").then((r) => r.json()).then((data) => {
+      LOC_EDGES.forEach((E) => {
+        const d = data.edges && data.edges[ekey(E.e.a, E.e.b)];
+        if (!d) return;
+        let pts = decodePolyline(d.p).map(([la, lo]) => km(la, lo));
+        if (d.from !== E.e.a) pts = pts.reverse(); // 区間の a 側から b 側へ並べる
+        const cum = [0];
+        for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+        E.shape = { pts, cum, len: cum[cum.length - 1] || 1e-9 };
+      });
+      if (locLast) drawLoc();
+    }).catch(() => { /* 読めなくても直線で動く */ });
+    return roadsLoading;
+  }
   let locWatch = null, locLast = null, locPrev = null, locMove = null, locEdge = null, locStaleTimer = null, wakeLock = null, locFirst = true;
-  // いちばん近い区間（前と同じ区間を少し優先して、行ったり来たりしないようにする）
-  function nearestEdge(lat, lon) {
+  // いちばん近い区間。道の形があれば実際の道との距離と「区間の何割の所か」を、無ければ直線で計算する。
+  // 選ぶときの工夫：進む向き（iPhone の進行方向）と道の向きが合う区間、さっきまでいた区間とその続きを優先する
+  function nearestEdge(lat, lon, heading) {
     const P = km(lat, lon);
+    const hv = heading != null && !isNaN(heading) ? { x: Math.sin((heading * Math.PI) / 180), y: Math.cos((heading * Math.PI) / 180) } : null;
     let best = null;
     LOC_EDGES.forEach((E) => {
-      const dx = E.B.x - E.A.x, dy = E.B.y - E.A.y, L2 = dx * dx + dy * dy || 1e-9;
-      const t = Math.max(0, Math.min(1, ((P.x - E.A.x) * dx + (P.y - E.A.y) * dy) / L2));
-      let d = Math.hypot(E.A.x + dx * t - P.x, E.A.y + dy * t - P.y);
-      if (locEdge && E.e === locEdge.e) d -= 0.15;
-      if (!best || d < best.d) best = { e: E.e, t, d, dx, dy };
+      let d, t, tx, ty;
+      const seg = (A, B) => {
+        const dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy || 1e-9;
+        const u = Math.max(0, Math.min(1, ((P.x - A.x) * dx + (P.y - A.y) * dy) / L2));
+        return { u, d: Math.hypot(A.x + dx * u - P.x, A.y + dy * u - P.y), dx, dy };
+      };
+      if (E.shape) {
+        const { pts, cum, len } = E.shape;
+        let m = null;
+        for (let i = 1; i < pts.length; i++) {
+          const r = seg(pts[i - 1], pts[i]);
+          if (!m || r.d < m.d) m = { ...r, i };
+        }
+        d = m.d; t = (cum[m.i - 1] + (cum[m.i] - cum[m.i - 1]) * m.u) / len; tx = m.dx; ty = m.dy;
+      } else {
+        const r = seg(E.A, E.B);
+        d = r.d; t = r.u; tx = r.dx; ty = r.dy;
+      }
+      const tl = Math.hypot(tx, ty) || 1e-9;
+      tx /= tl; ty /= tl;
+      let score = d;
+      if (hv) score += 0.25 * (1 - Math.abs(hv.x * tx + hv.y * ty)); // 向きが道と合わないほど不利（直角で +250m 相当）
+      if (locEdge) {
+        if (E.e === locEdge.e) score -= 0.12;
+        else if ([E.e.a, E.e.b].some((x) => x === locEdge.e.a || x === locEdge.e.b)) score -= 0.05; // さっきの区間の続き
+      }
+      if (!best || score < best.score) best = { e: E.e, t, d, dx: tx, dy: ty, score, shaped: !!E.shape };
     });
+    if (best) best.snap = best.d < (best.shaped ? LOC_SNAP_SHAPE_KM : LOC_SNAP_KM);
     return best;
+  }
+  // 進む先の地点：iPhone の進行方向があればそれで、無ければ少し動いたときの向きで決める
+  function towardOf(hit) {
+    const hd = locLast && locLast.heading;
+    let v = null;
+    if (hd != null && !isNaN(hd) && locLast.speed > 1.5) v = { x: Math.sin((hd * Math.PI) / 180), y: Math.cos((hd * Math.PI) / 180) };
+    else if (locMove) v = locMove;
+    if (!v) return null;
+    return v.x * hit.dx + v.y * hit.dy > 0 ? hit.e.b : hit.e.a;
   }
   function drawLoc() {
     gLoc.innerHTML = "";
     if (!locLast) return;
     const { lat, lon } = locLast;
-    const hit = nearestEdge(lat, lon);
+    const hit = nearestEdge(lat, lon, locLast.speed > 1.5 ? locLast.heading : null);
     let p, text, onRoad = false, ang = null;
-    if (hit && hit.d < LOC_SNAP_KM) {
+    if (hit && hit.snap) {
       locEdge = hit; onRoad = true;
       const pa = N[hit.e.a].p, pb = N[hit.e.b].p;
       p = { x: pa.x + (pb.x - pa.x) * hit.t, y: pa.y + (pb.y - pa.y) * hit.t };
       // 進む向き：前の位置からの動きが区間の a→b と同じ向きか
-      let toward = null;
-      if (locMove) toward = locMove.x * hit.dx + locMove.y * hit.dy > 0 ? hit.e.b : hit.e.a;
+      const toward = towardOf(hit);
       const names = [...new Set(hit.e.routes.map((r) => r.id))];
       const routeTxt = names.map((id) => `${tagText(R[id])} ${R[id].name}`).join("／");
       const from = toward === hit.e.a ? hit.e.b : hit.e.a;
@@ -1046,7 +1112,7 @@
   }
   function onLoc(pos) {
     const c = pos.coords;
-    const next = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, time: Date.now() };
+    const next = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, heading: c.heading, speed: c.speed || 0, time: Date.now() };
     // 進む向き：基準の位置から 60m 以上動いたら、その動きを向きとして覚え、基準を今の位置にする
     const P = km(next.lat, next.lon);
     if (!locPrev) locPrev = P;
@@ -1062,9 +1128,9 @@
   // そうでなければ近くの出入口のうち、そこまでの距離＋ルートの長さがいちばん短いもの
   function hereStart(g) {
     const { lat, lon } = locLast;
-    const hit = nearestEdge(lat, lon);
-    if (hit && hit.d < LOC_SNAP_KM && locMove) {
-      const toward = locMove.x * hit.dx + locMove.y * hit.dy > 0 ? hit.e.b : hit.e.a;
+    const hit = nearestEdge(lat, lon, locLast.speed > 1.5 ? locLast.heading : null);
+    const toward = hit && hit.snap ? towardOf(hit) : null;
+    if (toward) {
       const from = toward === hit.e.a ? hit.e.b : hit.e.a;
       const rts = [...new Set(hit.e.routes.map((r) => r.id))].map((id) => tagText(R[id])).join("・");
       return { s: toward, prev: from, driving: true, label: `現在地（${rts} ${N[from].name} → ${N[toward].name} の間を走行中）` };
@@ -1120,6 +1186,7 @@
     $("locNowText").textContent = "現在地を探しています…（はじめて使うときは位置情報の許可を求められます）";
     placeLocNow();
     locFirst = true; locPrev = null; locMove = null; locEdge = null;
+    loadRoads();
     keepAwake(true);
     clearInterval(locStaleTimer);
     locStaleTimer = setInterval(() => { if (locLast && Date.now() - locLast.time > LOC_STALE_MS) drawLoc(); }, 5000);
@@ -1127,7 +1194,9 @@
     if (sim) { // 確認用：決まった位置にいることにする
       // 「;」で区切って2点書くと、1点目から2点目へ動いたことにする（向きの確認用）
       locWatch = -1;
-      sim.split(";").forEach((pt) => { const [la, lo] = pt.split(",").map(Number); onLoc({ coords: { latitude: la, longitude: lo, accuracy: 15 } }); });
+      // 3つ目の数字は進行方向（北0・東90・南180・西270）。書くと時速40kmで走っていることにする
+      const run = () => sim.split(";").forEach((pt) => { const [la, lo, hd] = pt.split(",").map(Number); onLoc({ coords: { latitude: la, longitude: lo, accuracy: 15, heading: isNaN(hd) ? null : hd, speed: isNaN(hd) ? 0 : 11 } }); });
+      loadRoads().then(run);
       return;
     }
     if (!("geolocation" in navigator)) { onLocError({ code: 2 }); return; }
@@ -1229,6 +1298,7 @@
         <li>JCTの方向制限は、資料で確認できたものだけ反映しています。出入口の向き（片方向のみの出入口）は扱っていません。</li>
         <li>工事・通行止め・最新の規制は首都高の公式情報で確認してください。</li>
         <li><b>運転中は操作しないでください。</b>出発前の確認用です。</li>
+        <li>現在地の位置合わせに、OpenStreetMap の道路の形を使っています（© OpenStreetMap contributors、ODbL）。位置はこの端末の中だけで使い、どこにも送りません。</li>
       </ul>`;
   }
 

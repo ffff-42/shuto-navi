@@ -1,9 +1,9 @@
 // 首都高ナビ図：オフラインでも開けるようにするための仕組み（Service Worker）
 // ファイルを更新して公開するときは VERSION を上げる（app.js の APP_VERSION も同じ値に）。
-const VERSION = "v12";
+const VERSION = "v13";
 const CACHE = "shuto-navi-" + VERSION;
 const CORE = [
-  "./", "index.html", "style.css", "theme.js", "data.js", "geo.js", "search.js", "app.js",
+  "./", "index.html", "style.css", "theme.js", "data.js", "geo.js", "search.js", "app.js", "roads.json",
   "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"
 ];
 // 電波が弱いときに待つ最長時間。これを過ぎたら手元の控えを出す
