@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "v10"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
+  const APP_VERSION = "v11"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
   const D = window.SHUTO_DATA;
   const N = D.nodes;
   const ROUTES = D.routes;
@@ -643,15 +643,18 @@
   }
 
 
+  const HERE = "@here"; // 出発地の「現在地から」
+
   // ---------- 経路探索 ----------
   const TRANSFER_PENALTY = 1.0;
   function shareRoute(e1, e2) { return e1.routes.some((r) => e2.routes.some((r2) => r2.id === r.id)); }
 
-  function findRoute(s, g) {
+  // from：走ってきた方向（直前の地点）。指定すると、その向きから曲がれる道だけを使う（現在地から走行中のとき）
+  function findRoute(s, g, from) {
     if (s === g) return null;
     const dist = new Map(), prev = new Map(), info = new Map();
-    const k0 = s + "|";
-    dist.set(k0, 0); info.set(k0, [s, null]);
+    const k0 = s + "|" + (from || "");
+    dist.set(k0, 0); info.set(k0, [s, from || null]);
     const pq = [[0, k0]];
     while (pq.length) {
       let mi = 0;
@@ -744,7 +747,8 @@
   }
 
   function runSearch() {
-    const s = $("from").value, g = $("to").value;
+    let s = $("from").value;
+    const g = $("to").value;
     const out = $("result");
     highlightRoute(null);
     if (!s || !g) {
@@ -752,17 +756,43 @@
       drawPath(null);
       return;
     }
-    if (s === g) { out.innerHTML = `<p class="warn">出発と目的地が同じです。</p>`; drawPath(null); return; }
-    const path = findRoute(s, g);
+    // 出発が「現在地」のとき：位置が分かるまで待ち、走行中ならその先の地点から、そうでなければ近くの入口から探す
+    let here = null;
+    if (s === HERE) {
+      if (!locLast || Date.now() - locLast.time > 30000) {
+        out.innerHTML = `<p class="muted route-hint">現在地を探しています…（位置情報の許可を求められたら「許可」を選んでください）</p>`;
+        drawPath(null);
+        requestHere(runSearch);
+        return;
+      }
+      here = hereStart(g);
+      if (!here) { out.innerHTML = `<p class="warn">現在地の近くに使える入口が見つかりませんでした。</p>`; drawPath(null); return; }
+      s = here.s;
+    }
+    let path;
+    if (here && here.driving && s === g) path = [here.prev, g];
+    else {
+      if (s === g) { out.innerHTML = `<p class="warn">${here ? "目的地は現在地のすぐ近くです。" : "出発と目的地が同じです。"}</p>`; drawPath(null); return; }
+      path = findRoute(s, g, here && here.prev);
+      if (path && here && here.driving) path.unshift(here.prev); // 走ってきた区間も地図に描く
+    }
     if (!path) { out.innerHTML = `<p class="warn">ルートが見つかりませんでした（方向制限のため）。</p>`; drawPath(null); return; }
+    s = path[0];
     const legs = buildLegs(path);
     const total = legs.reduce((a, l) => a + l.km, 0);
     const jcts = legs.length - 1;
 
     let html = `<p class="summary-line">約${total.toFixed(1)}km・乗り換え${jcts}回（JCTで${jcts}回分岐）</p><ol class="steps">`;
     const sN = N[s];
-    html += `<li class="step start clickable" data-node="${s}"><div class="where">${esc(placeName(s))}</div>`;
-    html += `<div class="detail">${sN.type === "end" ? "ここから入る" : "ここで乗る（入口によっては片方向のみの場合あり）"}</div>`;
+    if (here) {
+      html = `<p class="summary-line">約${total.toFixed(1)}km・乗り換え${jcts}回</p>`
+        + `<button type="button" class="small-btn here-again" id="hereAgain">今の位置で計算し直す</button><ol class="steps">`;
+      html += `<li class="step start clickable" data-node="${s}"><div class="where">📍 ${esc(here.label)}</div>`;
+      html += `<div class="detail">${here.driving ? "このまま進む" : `ここで乗る（現在地から直線で約${here.km.toFixed(1)}km。入口によっては片方向のみの場合あり）`}</div>`;
+    } else {
+      html += `<li class="step start clickable" data-node="${s}"><div class="where">${esc(placeName(s))}</div>`;
+      html += `<div class="detail">${sN.type === "end" ? "ここから入る" : "ここで乗る（入口によっては片方向のみの場合あり）"}</div>`;
+    }
     html += signHtml(legs[0]) + `<div class="detail">${esc(legDetail(legs[0]))}</div></li>`;
 
     for (let i = 1; i < legs.length; i++) {
@@ -794,6 +824,7 @@
       setView({ x: p.x - 60, y: p.y - 45, w: 120, h: 90 });
       markSelected(id);
     }));
+    if (here) $("hereAgain").onclick = runSearch;
     drawPath(path);
     fit([...new Set(path)], isMobile() ? 75 : 45);
   }
@@ -810,7 +841,7 @@
       return `<optgroup label="${esc(label)}">${items.map((o) => `<option value="${o.id}">${esc(o.t)}</option>`).join("")}</optgroup>`;
     }).join("");
     // 何も選んでいない状態から始める（選ぶまで地図にルートは出さない）
-    $("from").innerHTML = `<option value="">出発地を選んでください</option>` + html;
+    $("from").innerHTML = `<option value="">出発地を選んでください</option><option value="${HERE}">📍 現在地から（GPS）</option>` + html;
     $("to").innerHTML = `<option value="">目的地を選んでください</option>` + html;
     $("from").value = "";
     $("to").value = "";
@@ -821,7 +852,8 @@
   };
   // ルートを消して、何も選んでいない状態に戻す
   $("clearRoute").onclick = () => { $("from").value = ""; $("to").value = ""; $("result").innerHTML = ""; drawPath(null); markSelected(null); };
-  $("swap").onclick = () => { const a = $("from").value; $("from").value = $("to").value; $("to").value = a; runSearch(); };
+  // 「現在地」は目的地には選べないので、入れ替えるときは目的地を空にする
+  $("swap").onclick = () => { const a = $("from").value; $("from").value = $("to").value; $("to").value = a === HERE ? "" : a; runSearch(); };
 
   // ---------- 地点情報 ----------
   function markSelected(id) {
@@ -1018,12 +1050,46 @@
     else if (Math.hypot(P.x - locPrev.x, P.y - locPrev.y) > 0.06) { locMove = { x: P.x - locPrev.x, y: P.y - locPrev.y }; locPrev = P; }
     locLast = next;
     drawLoc();
+    if (hereWaiters.length) { const w = hereWaiters; hereWaiters = []; w.forEach((f) => f()); }
+  }
+  // 「現在地から」のルート：位置が分かったら呼ぶ
+  let hereWaiters = [];
+  function requestHere(cb) { hereWaiters.push(cb); if (locWatch === null) startLoc(); }
+  // ルートの出発点：首都高を走っている（線の近くで動いている）なら進む先の地点から、
+  // そうでなければ近くの出入口のうち、そこまでの距離＋ルートの長さがいちばん短いもの
+  function hereStart(g) {
+    const { lat, lon } = locLast;
+    const hit = nearestEdge(lat, lon);
+    if (hit && hit.d < LOC_SNAP_KM && locMove) {
+      const toward = locMove.x * hit.dx + locMove.y * hit.dy > 0 ? hit.e.b : hit.e.a;
+      const from = toward === hit.e.a ? hit.e.b : hit.e.a;
+      const rts = [...new Set(hit.e.routes.map((r) => r.id))].map((id) => tagText(R[id])).join("・");
+      return { s: toward, prev: from, driving: true, label: `現在地（${rts} ${N[from].name} → ${N[toward].name} の間を走行中）` };
+    }
+    const P = km(lat, lon);
+    const cands = Object.values(N).filter((n) => n.type === "ic" || n.type === "end")
+      .map((n) => { const q = km(n.lat, n.lon); return { n, d: Math.hypot(q.x - P.x, q.y - P.y) }; })
+      .sort((a, b) => a.d - b.d).slice(0, 4);
+    let best = null;
+    cands.forEach(({ n, d }) => {
+      let len = 0;
+      if (n.id !== g) {
+        const pth = findRoute(n.id, g);
+        if (!pth) return;
+        for (let i = 1; i < pth.length; i++) len += edgeOf(pth[i - 1], pth[i]).km;
+      }
+      const cost = d * 1.5 + len; // 一般道は首都高より時間がかかるので、入口までの距離を重めに
+      if (!best || cost < best.cost) best = { cost, n, d };
+    });
+    if (!best) return null;
+    return { s: best.n.id, prev: null, driving: false, km: best.d, label: `現在地の近くの入口：${placeName(best.n.id)}` };
   }
   function onLocError(err) {
     const msg = err.code === 1
       ? "位置情報が許可されていません。iPhone の「設定」→「プライバシーとセキュリティ」→「位置情報サービス」で、Safari（またはこのWebサイト）を許可してください。"
       : err.code === 3 ? "位置が取れるまで時間がかかっています。空が見える所でお待ちください。" : "位置が取れませんでした。";
     $("locNowText").textContent = msg;
+    if (hereWaiters.length && (err.code === 1 || err.code === 2)) { hereWaiters = []; $("result").innerHTML = `<p class="warn">${esc(msg)}</p>`; }
     if (err.code === 1) stopLoc(true);
   }
   // 現在地を見ている間は画面を消さない（使える端末だけ）
