@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "v9"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
+  const APP_VERSION = "v10"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
   const D = window.SHUTO_DATA;
   const N = D.nodes;
   const ROUTES = D.routes;
@@ -164,6 +164,7 @@
   const gLabel = el("g", { class: "layer layer-labels" }, svg);
   const gPlace = el("g", { class: "layer layer-places" }, svg);
   const gSel = el("g", { class: "layer layer-selection" }, svg);
+  const gLoc = el("g", { class: "layer layer-loc" }, svg); // 現在地の印（いちばん上）
 
   // 背景：海と川
   const ptsOf = (arr) => arr.map(([la, lo]) => { const p = proj(la, lo); return `${p.x},${p.y}`; }).join(" ");
@@ -946,6 +947,138 @@
     if (isMobile() && document.body.dataset.sheet !== "min") setRoutePicker(false);
     else if (!$("routePicker").hidden) requestAnimationFrame(placeRoutePicker);
   }).observe(document.body, { attributes: true, attributeFilter: ["data-sheet"] });
+
+  // ---------- 現在地（おおまか） ----------
+  // iPhone の位置情報を、この簡略化した地図に合わせて表示する。位置は端末の中だけで使い、どこにも送らない。
+  // 首都高の近くにいるときは、いちばん近い区間を探し、その区間の「何割進んだ所か」を地図の線の同じ割合の所に置く。
+  // 試すとき：URL に ?loc=35.66,139.70 を付けると、その位置にいることにして表示する（パソコンでの確認用）
+  const LOC_SNAP_KM = 0.8;   // 首都高の線に寄せる距離（線は直線で描いているので少し広め）
+  const LOC_STALE_MS = 20000; // これより長く更新がなければ「最後の位置」（トンネルの中など）
+  const km = (lat, lon) => ({ x: (lon - D.center.lon) * 90.3, y: (lat - D.center.lat) * 111 });
+  const LOC_EDGES = Object.values(edgeMap).map((e) => ({ e, A: km(N[e.a].lat, N[e.a].lon), B: km(N[e.b].lat, N[e.b].lon) }));
+  let locWatch = null, locLast = null, locPrev = null, locMove = null, locEdge = null, locStaleTimer = null, wakeLock = null, locFirst = true;
+  // いちばん近い区間（前と同じ区間を少し優先して、行ったり来たりしないようにする）
+  function nearestEdge(lat, lon) {
+    const P = km(lat, lon);
+    let best = null;
+    LOC_EDGES.forEach((E) => {
+      const dx = E.B.x - E.A.x, dy = E.B.y - E.A.y, L2 = dx * dx + dy * dy || 1e-9;
+      const t = Math.max(0, Math.min(1, ((P.x - E.A.x) * dx + (P.y - E.A.y) * dy) / L2));
+      let d = Math.hypot(E.A.x + dx * t - P.x, E.A.y + dy * t - P.y);
+      if (locEdge && E.e === locEdge.e) d -= 0.15;
+      if (!best || d < best.d) best = { e: E.e, t, d, dx, dy };
+    });
+    return best;
+  }
+  function drawLoc() {
+    gLoc.innerHTML = "";
+    if (!locLast) return;
+    const { lat, lon } = locLast;
+    const hit = nearestEdge(lat, lon);
+    let p, text, onRoad = false, ang = null;
+    if (hit && hit.d < LOC_SNAP_KM) {
+      locEdge = hit; onRoad = true;
+      const pa = N[hit.e.a].p, pb = N[hit.e.b].p;
+      p = { x: pa.x + (pb.x - pa.x) * hit.t, y: pa.y + (pb.y - pa.y) * hit.t };
+      // 進む向き：前の位置からの動きが区間の a→b と同じ向きか
+      let toward = null;
+      if (locMove) toward = locMove.x * hit.dx + locMove.y * hit.dy > 0 ? hit.e.b : hit.e.a;
+      const names = [...new Set(hit.e.routes.map((r) => r.id))];
+      const routeTxt = names.map((id) => `${tagText(R[id])} ${R[id].name}`).join("／");
+      const from = toward === hit.e.a ? hit.e.b : hit.e.a;
+      text = toward ? `${routeTxt}　${N[from].name} → ${N[toward].name} の間` : `${routeTxt}　${N[hit.e.a].name}〜${N[hit.e.b].name}付近`;
+      if (toward) {
+        const q = N[toward].p;
+        ang = (Math.atan2(q.y - p.y, q.x - p.x) * 180) / Math.PI;
+      }
+    } else {
+      locEdge = null;
+      p = proj(lat, lon);
+      text = hit ? `首都高から少し離れた所（いちばん近いのは ${N[hit.e.a].name}〜${N[hit.e.b].name}）` : "現在地";
+    }
+    const stale = Date.now() - locLast.time > LOC_STALE_MS;
+    if (stale) text = `最後に分かった位置：${text}（トンネルの中などで位置が取れていません）`;
+    else if (locLast.acc > 300) text += "　※位置の精度が低め";
+    const g = el("g", { class: "loc-mark" + (onRoad ? " on-road" : "") + (stale ? " stale" : ""), transform: `translate(${p.x} ${p.y})` }, gLoc);
+    el("circle", { r: 9, class: "loc-pulse" }, g);
+    if (ang !== null) el("path", { d: "M 0 -9 L 5 -3 L -5 -3 Z", class: "loc-arrow", transform: `rotate(${(ang + 90).toFixed(0)})` }, g);
+    el("circle", { r: 4.6, class: "loc-dot" }, g);
+    $("locNowText").textContent = text;
+    // はじめは現在地へ寄せる。そのあとは、印が画面の端に近づいたときだけ動かす
+    const mx = view.w * 0.15, my = view.h * 0.15;
+    if (locFirst) { locFirst = false; centerOn(p); }
+    else if (p.x < view.x + mx || p.x > view.x + view.w - mx || p.y < view.y + my || p.y > view.y + view.h - my) setView({ ...view, x: p.x - view.w / 2, y: p.y - view.h / 2 });
+  }
+  function onLoc(pos) {
+    const c = pos.coords;
+    const next = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, time: Date.now() };
+    // 進む向き：基準の位置から 60m 以上動いたら、その動きを向きとして覚え、基準を今の位置にする
+    const P = km(next.lat, next.lon);
+    if (!locPrev) locPrev = P;
+    else if (Math.hypot(P.x - locPrev.x, P.y - locPrev.y) > 0.06) { locMove = { x: P.x - locPrev.x, y: P.y - locPrev.y }; locPrev = P; }
+    locLast = next;
+    drawLoc();
+  }
+  function onLocError(err) {
+    const msg = err.code === 1
+      ? "位置情報が許可されていません。iPhone の「設定」→「プライバシーとセキュリティ」→「位置情報サービス」で、Safari（またはこのWebサイト）を許可してください。"
+      : err.code === 3 ? "位置が取れるまで時間がかかっています。空が見える所でお待ちください。" : "位置が取れませんでした。";
+    $("locNowText").textContent = msg;
+    if (err.code === 1) stopLoc(true);
+  }
+  // 現在地を見ている間は画面を消さない（使える端末だけ）
+  async function keepAwake(on) {
+    try {
+      if (on && "wakeLock" in navigator && !wakeLock && document.visibilityState === "visible") {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => { wakeLock = null; });
+      } else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+    } catch (e) { wakeLock = null; }
+  }
+  document.addEventListener("visibilitychange", () => { if (locWatch !== null) keepAwake(true); });
+  function placeLocNow() {
+    const wrap = document.querySelector(".map-wrap"), sb = document.querySelector(".map-search");
+    if (!wrap || !sb) return;
+    const w = wrap.getBoundingClientRect(), r = sb.getBoundingClientRect();
+    wrap.style.setProperty("--loc-top", Math.round(r.bottom - w.top + 6) + "px");
+    wrap.style.setProperty("--loc-left", Math.round(r.left - w.left) + "px");
+    wrap.style.setProperty("--loc-width", Math.round(r.width) + "px");
+  }
+  function startLoc() {
+    $("locate").setAttribute("aria-pressed", "true");
+    $("locate").classList.add("active");
+    $("locNow").hidden = false;
+    $("locNowText").textContent = "現在地を探しています…（はじめて使うときは位置情報の許可を求められます）";
+    placeLocNow();
+    locFirst = true; locPrev = null; locMove = null; locEdge = null;
+    keepAwake(true);
+    clearInterval(locStaleTimer);
+    locStaleTimer = setInterval(() => { if (locLast && Date.now() - locLast.time > LOC_STALE_MS) drawLoc(); }, 5000);
+    const sim = new URLSearchParams(location.search).get("loc");
+    if (sim) { // 確認用：決まった位置にいることにする
+      // 「;」で区切って2点書くと、1点目から2点目へ動いたことにする（向きの確認用）
+      locWatch = -1;
+      sim.split(";").forEach((pt) => { const [la, lo] = pt.split(",").map(Number); onLoc({ coords: { latitude: la, longitude: lo, accuracy: 15 } }); });
+      return;
+    }
+    if (!("geolocation" in navigator)) { onLocError({ code: 2 }); return; }
+    locWatch = navigator.geolocation.watchPosition(onLoc, onLocError, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });
+  }
+  function stopLoc(keepMsg) {
+    if (locWatch !== null && locWatch >= 0) navigator.geolocation.clearWatch(locWatch);
+    locWatch = null; locLast = null; locPrev = null; locMove = null; locEdge = null;
+    clearInterval(locStaleTimer);
+    keepAwake(false);
+    gLoc.innerHTML = "";
+    $("locate").setAttribute("aria-pressed", "false");
+    $("locate").classList.remove("active");
+    if (!keepMsg) $("locNow").hidden = true;
+  }
+  $("locate").onclick = () => (locWatch !== null ? stopLoc() : startLoc());
+  $("locNowOff").onclick = () => stopLoc();
+  window.addEventListener("resize", () => { if (!$("locNow").hidden) placeLocNow(); });
+  // 確認用の ?loc= があるときは、開いたらすぐ表示する
+  if (new URLSearchParams(location.search).get("loc")) setTimeout(startLoc, 300);
 
   // ---------- 表示切り替え ----------
   document.querySelectorAll(".map-layers input").forEach((cb) => {

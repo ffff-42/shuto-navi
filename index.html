@@ -50,6 +50,12 @@
         <button type="button" id="zoomCenter" aria-label="都心を拡大">都心</button>
         <button type="button" id="placeMode" class="mode-btn" aria-pressed="false" aria-label="主要地名を強調する地名モード">地名</button>
         <button type="button" id="routePick" class="mode-btn" aria-expanded="false" aria-controls="routePicker" aria-label="路線を選んで強調する">路線</button>
+        <button type="button" id="locate" class="mode-btn" aria-pressed="false" aria-label="現在地をおおまかに表示">現在地</button>
+      </div>
+      <div class="loc-now" id="locNow" hidden aria-live="polite">
+        <span class="loc-now-dot" aria-hidden="true"></span>
+        <span class="loc-now-text" id="locNowText">現在地を探しています…</span>
+        <button type="button" class="loc-now-off" id="locNowOff" aria-label="現在地の表示をやめる">終了</button>
       </div>
       <div class="route-picker" id="routePicker" hidden role="group" aria-label="路線を選んで強調">
         <div class="route-chips" id="routeChips"></div>
