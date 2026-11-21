@@ -1,6 +1,6 @@
 // 首都高ナビ図：オフラインでも開けるようにするための仕組み（Service Worker）
 // ファイルを更新して公開するときは VERSION を上げる（app.js の APP_VERSION も同じ値に）。
-const VERSION = "v8";
+const VERSION = "v9";
 const CACHE = "shuto-navi-" + VERSION;
 const CORE = [
   "./", "index.html", "style.css", "theme.js", "data.js", "geo.js", "search.js", "app.js",

@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "v8"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
+  const APP_VERSION = "v9"; // sw.js の VERSION と合わせる（「基本」タブの下に表示）
   const D = window.SHUTO_DATA;
   const N = D.nodes;
   const ROUTES = D.routes;
@@ -12,6 +12,16 @@
   const TMAP = THEME.map || {};
   const GEO = window.SHUTO_GEO || { bay: [], rivers: [], places: [] };
   ROUTES.forEach((r) => { if (THEME.routeColors && THEME.routeColors[r.id]) r.color = THEME.routeColors[r.id]; });
+  // 首都高の外の高速（参考）も、選んで強調・検索できるよう路線として登録する（経路探索には使わない）
+  const XROUTES = [];
+  (D.expressways || []).forEach((x) => {
+    if (!N[x.from]) return;
+    if (!R[x.id]) {
+      R[x.id] = { id: x.id, name: x.full || x.name, short: x.short, chip: x.chip, color: x.color, outer: true, nodes: [] };
+      XROUTES.push(R[x.id]);
+    }
+    R[x.id].nodes.push(...[x.from, x.via].filter(Boolean));
+  });
 
   // 凡例のグループ分け
   const GROUPS = [
@@ -20,7 +30,8 @@
     { name: "都心から放射状に伸びる路線", ids: ["1U", "6M", "6S", "7", "9", "10", "11", "1H", "2", "3", "4", "5"] },
     { name: "埼玉方面", ids: ["S1", "S5"] },
     { name: "神奈川方面", ids: ["K1", "K3", "K5", "K6", "K7"] },
-    { name: "首都高以外（参考）", ids: ["C3", "CA"] }
+    { name: "首都高以外（参考）", ids: ["C3", "CA"] },
+    { name: "首都高の外の高速（つながる先）", ids: XROUTES.map((r) => r.id) }
   ];
 
   const SVGNS = "http://www.w3.org/2000/svg";
@@ -83,7 +94,7 @@
   function tagText(r) { return r.short || r.num || r.id; }
   function badge(rid) {
     const r = R[rid];
-    return `<span class="badge${r.external ? " ext" : ""}" style="background:${r.color}">${esc(tagText(r))}</span>`;
+    return `<span class="badge${r.external ? " ext" : ""}${r.outer ? " outer" : ""}" style="background:${r.color}">${esc(tagText(r))}</span>`;
   }
   function bearing(a, b) {
     const dx = (N[b].lon - N[a].lon) * 90.3, dy = (N[b].lat - N[a].lat) * 111;
@@ -128,6 +139,16 @@
     for (const k in attrs) e.setAttribute(k, attrs[k]);
     if (parent) parent.appendChild(e);
     return e;
+  }
+  // 文字の実際の大きさ（通常表示と地名モードの両方で測る。表示していないものは除く）
+  function boxesOf(sel) {
+    const out = [];
+    const grab = () => svg.querySelectorAll(sel).forEach((t) => {
+      try { const b = t.getBBox(); if (b.width) out.push({ x: b.x, y: b.y, width: b.width, height: b.height }); } catch (e) { /* 表示前は測れない */ }
+    });
+    const had = svg.classList.contains("place-mode");
+    grab(); svg.classList.toggle("place-mode", !had); grab(); svg.classList.toggle("place-mode", had);
+    return out;
   }
   // レイヤー（下から順に描かれる）
   const gGeo = el("g", { class: "layer layer-geo" }, svg);
@@ -175,6 +196,7 @@
   const XWAY_FROM = new Set(XWAYS.flatMap((x) => [x.from, x.via].filter(Boolean)));
   const XWAY_LEN = 85, XWAY_TAIL = 45, XWAY_LBL = 26; // 外へ伸ばす長さ・その先の薄い部分・名前を置く位置（地図の単位）
   // 名前は線の先ではなく線の横に置く。全体表示の範囲には名前だけを入れ、線の先は画面の外へはみ出してよい
+  const XLBL = []; // 名前の置き場所は、地名や地点名を描いたあとで重ならない所を選び直す
   XWAYS.forEach((x) => {
     let pts = x.pts.map(([la, lo]) => proj(la, lo));
     pts[0] = N[x.from].p; // 起点は地図上の地点にぴったり合わせる
@@ -200,7 +222,7 @@
     const cut = at(XWAY_LEN);
     const main = [...pts.slice(0, cut.i), cut], tail = [cut, ...pts.slice(cut.i)];
     const line = (arr) => arr.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-    const g = el("g", { class: "xway", "data-from": x.from }, gXway);
+    const g = el("g", { class: "xway", "data-from": x.from, "data-route": x.id }, gXway);
     el("polyline", { points: line(tail), class: "xway-line xway-tail", stroke: x.color || "#888" }, g);
     el("polyline", { points: line(main), class: "xway-line", stroke: x.color || "#888" }, g);
     // 線の横に「名前」と「▶行き先」を2行で。横向きの線は上に、縦向きの線は side（既定は右）に置く
@@ -212,9 +234,12 @@
     const tx = m.x + nx * 7, by = m.y + ny * 7;
     const anchor = nx > 0.35 ? "start" : nx < -0.35 ? "end" : "middle";
     const ty = ny < -0.35 ? by - 13 : ny > 0.35 ? by + 8 : by - 2;
-    const t = el("text", { x: tx, y: ty, "text-anchor": anchor, class: "xway-lbl" }, g);
-    const t1 = el("tspan", { class: "xway-name", x: tx, fill: x.color || "currentColor" }, t); t1.textContent = x.name;
+    const t = el("text", { x: tx, y: ty, "text-anchor": anchor, class: "xway-lbl", "data-route": x.id }, g);
+    const t1 = el("tspan", { class: "xway-name", x: tx, fill: x.color || "currentColor" }, t);
+    el("tspan", { class: "xway-num" }, t1).textContent = (x.short || x.id) + " ";
+    t1.appendChild(document.createTextNode(x.name));
     const t2 = el("tspan", { class: "xway-dest", x: tx, dy: 10 }, t); t2.textContent = "▶" + x.dest;
+    XLBL.push({ t, t1, t2, at, side: x.side });
   });
 
   // 路線
@@ -296,13 +321,53 @@
     });
   });
 
+  // 外の高速の名前：線の横の数か所を試し、地名・地点名・番号タグ・ほかの名前と重ならない所に置く
+  (function placeXwayLabels() {
+    // w：重なったときの重み（地域名のような薄い背景の文字は軽く、番号タグは重く）
+    const avoid = [
+      ...boxesOf(".lbl, .place-lbl").map((b) => ({ ...b, w: 4 })),
+      ...boxesOf(".area, .river-lbl").map((b) => ({ ...b, w: 0.5 }))
+    ];
+    TAGS.forEach((tg) => avoid.push({ x: tg.x - tg.w / 2, y: tg.y - 8, width: tg.w, height: 16, w: 8 }));
+    Object.values(N).forEach((n) => avoid.push({ x: n.p.x - 5, y: n.p.y - 5, width: 10, height: 10, w: 4 }));
+    // 首都高の地点が収まる範囲。名前がここから外へはみ出すと全体表示が広がり、地図が小さくなる
+    const core = bboxOf(Object.keys(N), 40);
+    const outside = (b) => (Math.max(0, core.x - b.x) + Math.max(0, b.x + b.width - core.x - core.w)) * b.height
+      + (Math.max(0, core.y - b.y) + Math.max(0, b.y + b.height - core.y - core.h)) * b.width * 0.3;
+    const overlap = (a, b) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+    XLBL.forEach((L) => {
+      let best = null;
+      [26, 34, 18, 12, 44, 54, 64].forEach((d, di) => {
+        const m = L.at(d);
+        [1, -1].forEach((sg, si) => {
+          let nx = -m.uy * sg, ny = m.ux * sg;
+          const tx = m.x + nx * 7, by = m.y + ny * 7;
+          const anchor = nx > 0.35 ? "start" : nx < -0.35 ? "end" : "middle";
+          const ty = ny < -0.35 ? by - 13 : ny > 0.35 ? by + 8 : by - 2;
+          L.t.setAttribute("x", tx); L.t.setAttribute("y", ty); L.t.setAttribute("text-anchor", anchor);
+          L.t1.setAttribute("x", tx); L.t2.setAttribute("x", tx);
+          let b; try { b = L.t.getBBox(); } catch (e) { return; }
+          b = { x: b.x - 2, y: b.y - 1, width: b.width + 4, height: b.height + 2 };
+          // 既定（横向きの線は上、縦向きの線は右）を少しだけ優先し、近い位置ほど良いとする
+          const pref = (Math.abs(m.ux) > 0.6 ? ny < 0 : nx > 0) ? 0 : 6;
+          const score = avoid.reduce((sum, a) => sum + overlap(a, b) * a.w, 0) + outside(b) + pref + di * 4 + si;
+          if (!best || score < best.score) best = { score, tx, ty, anchor, b };
+        });
+      });
+      if (!best) return;
+      L.t.setAttribute("x", best.tx); L.t.setAttribute("y", best.ty); L.t.setAttribute("text-anchor", best.anchor);
+      L.t1.setAttribute("x", best.tx); L.t2.setAttribute("x", best.tx);
+      avoid.push({ ...best.b, w: 4 });
+    });
+  })();
+
   // 路線名（線に沿って書く）：長い区間の中で、番号タグや地点とぶつからない場所を選ぶ
   const NODE_PTS = Object.values(N).map((n) => n.p);
-  // 地点の名前（描いたあとの実際の大きさ）も避ける
-  const LBL_BOXES = [];
-  gLabel.querySelectorAll(".lbl").forEach((t) => {
-    try { const b = t.getBBox(); if (b.width) LBL_BOXES.push(b); } catch (e) { /* 表示前は測れない */ }
-  });
+  // 地点の名前・地名・外の高速の名前（描いたあとの実際の大きさ。通常と地名モードの両方）も避ける
+  const LBL_BOXES = boxesOf(".lbl, .place-lbl, .xway-lbl, .area");
+  const NAME_PTS = []; // 置いた路線名の文字の位置（路線名どうしも重ねない）
+  // 地図に書く路線名：「神奈川7号」などは番号タグで分かるので省いて短くする
+  const mapName = (r) => r.name.replace(/^神奈川\d+号/, "");
   ROUTES.forEach((r) => {
     const s = r.seq.map((x) => x[0]);
     if (r.ring) s.push(s[0]);
@@ -314,7 +379,8 @@
     segs.sort((p, q) => q.len - p.len);
     const minLen = TMAP.routeNameMinLen || 40;
     if (!segs.length || segs[0].len < minLen) return;
-    const half = r.name.length * 4.8 + 2; // 文字の長さの半分（9〜10px の文字）
+    const name = mapName(r);
+    const half = name.length * 4.8 + 2; // 文字の長さの半分（9〜10px の文字）
     let best = null;
     segs.filter((g) => g.len >= minLen).forEach((g, si) => {
       // 文字は左から右へ読む向きに回すので、その向き（右向き）にそろえる。「線の上」はこの向きの左手側
@@ -332,14 +398,21 @@
         NODE_PTS.forEach((p) => { if (hit(p.x, p.y, 3, 12)) bad += 1; });
         // 名前の帯（線の上 2〜12）の数か所が、地点の名前の枠に入るか
         for (let q = -1; q <= 1; q += 0.5) {
-          const px = cx + ux * half * q + uy * 7, py = cy + uy * half * q - ux * 7; // 線の上側（文字の中心あたり）
-          if (LBL_BOXES.some((b) => px > b.x - 2 && px < b.x + b.width + 2 && py > b.y - 2 && py < b.y + b.height + 2)) bad += 1;
+          const px = cx + ux * half * q + uy * 9, py = cy + uy * half * q - ux * 9; // 線の上側（文字の中心あたり）
+          if (LBL_BOXES.some((b) => px > b.x - 5 && px < b.x + b.width + 5 && py > b.y - 2 && py < b.y + b.height + 2)) bad += 1;
+          if (NAME_PTS.some((p) => Math.hypot(p.x - px, p.y - py) < 10)) bad += 2;
         }
         const score = bad * 1000 + si * 10 + ti;
         if (!best || score < best.score) best = { score, g, tt, tag };
       });
     });
     const { g, tt, tag } = best;
+    {
+      let ux = (g.b.x - g.a.x) / g.len, uy = (g.b.y - g.a.y) / g.len;
+      if (ux < 0) { ux = -ux; uy = -uy; }
+      const cx = g.a.x + (g.b.x - g.a.x) * tt, cy = g.a.y + (g.b.y - g.a.y) * tt, off = tag ? 15 : 9;
+      for (let q = -1; q <= 1; q += 0.25) NAME_PTS.push({ x: cx + ux * half * q + uy * off, y: cy + uy * half * q - ux * off });
+    }
     let ang = (Math.atan2(g.b.y - g.a.y, g.b.x - g.a.x) * 180) / Math.PI;
     if (ang > 90) ang -= 180;
     if (ang < -90) ang += 180;
@@ -349,7 +422,7 @@
       x, y, dy: tag ? -12 : -6, transform: `rotate(${ang.toFixed(1)} ${x} ${y})`,
       class: "route-name" + (r.external ? " ext" : ""), "data-route": r.id, fill: r.color
     }, gRouteName);
-    t.textContent = r.name;
+    t.textContent = name;
   });
 
   // ---------- 表示範囲（パン・ズーム） ----------
@@ -559,12 +632,13 @@
     gEdge.querySelectorAll(".edge").forEach((l) => l.classList.toggle("on", on.has(l.getAttribute("data-route"))));
     gTag.querySelectorAll(".route-tag").forEach((g) => g.classList.toggle("on", on.has(g.getAttribute("data-route"))));
     gRouteName.querySelectorAll(".route-name").forEach((t) => t.classList.toggle("on", on.has(t.getAttribute("data-route"))));
+    gXway.querySelectorAll(".xway").forEach((g) => g.classList.toggle("on", on.has(g.getAttribute("data-route"))));
     document.querySelectorAll(".legend-item").forEach((b) => b.classList.toggle("active", on.has(b.dataset.route)));
     document.querySelectorAll(".line-item").forEach((li) => li.classList.toggle("active", on.has(li.dataset.route)));
     document.querySelectorAll(".route-chip").forEach((b) => { b.classList.toggle("active", on.has(b.dataset.route)); b.setAttribute("aria-pressed", String(on.has(b.dataset.route))); });
     renderRouteNow(ids);
     // 既定は「全体のまま強調」。設定で「路線を選んだら拡大」にしたときだけ寄る
-    if (ids.length && zoomOnRoute) fit([...new Set(ids.flatMap((id) => R[id].seq.map((s) => s[0])))], 50);
+    if (ids.length && zoomOnRoute) fit([...new Set(ids.flatMap((id) => (R[id].seq ? R[id].seq.map((s) => s[0]) : R[id].nodes)))], R[ids[0]].outer ? 90 : 50);
   }
 
 
@@ -828,7 +902,7 @@
   }
   // 細い一覧に収まるよう、長い名前だけ縮める（4文字程度まで）
   const CHIP_NAME = { K7: "横浜北", C3: "外環", CA: "アクア" };
-  function chipName(id) { return CHIP_NAME[id] || shortRouteName(R[id]); }
+  function chipName(id) { return CHIP_NAME[id] || R[id].chip || shortRouteName(R[id]); }
   function renderRoutePicker() {
     $("routeChips").innerHTML = GROUPS.map((g) => g.ids.filter((id) => R[id]).map((id) =>
       `<button type="button" class="route-chip${R[id].external ? " ext" : ""}" data-route="${id}" aria-pressed="false" aria-label="${esc(R[id].name)}" title="${esc(R[id].name)}">${badge(id)}<span class="chip-name">${esc(chipName(id))}</span></button>`
@@ -959,7 +1033,7 @@
   // ---------- 検索（文字・声） ----------
   // このアプリに載っている地名・路線名・JCT名だけを候補にして、近いものを探す（search.js）
   const SEARCH = window.SHUTO_SEARCH;
-  const sIndex = SEARCH.createIndex({ nodes: D.nodes, routes: ROUTES, places: GEO.places });
+  const sIndex = SEARCH.createIndex({ nodes: D.nodes, routes: [...ROUTES, ...XROUTES], places: GEO.places });
   const KIND_NAME = { place: "地名", route: "路線", node: "地点" };
   function showSearchPanel(msg, hits) {
     $("searchPanel").hidden = false;

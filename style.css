@@ -409,12 +409,21 @@ button.primary:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20
 }
 .xway-name { font-weight: 800; filter: brightness(var(--route-brightness)); }
 .xway-dest { fill: var(--muted); font-weight: 500; }
-#map.dim .xway-line,
-#map.place-mode .xway-line { opacity: .45; }
-#map.dim .xway-tail,
-#map.place-mode .xway-tail { opacity: .25; }
-#map.dim .xway-lbl,
-#map.place-mode .xway-lbl { opacity: .85; }
+.xway-num { font-weight: 800; }
+#map.place-mode .xway-line { opacity: .55; }
+#map.place-mode .xway-tail { opacity: .3; }
+#map.place-mode .xway-lbl { opacity: .9; }
+/* 路線を選んで強調したとき（Claude Code 追記 v9）：選んだ外の高速は太く濃く、ほかは薄く */
+#map.dim .xway:not(.on) .xway-line,
+#map.peek .xway:not(.peek-on) .xway-line { opacity: .18; }
+#map.dim .xway:not(.on) .xway-lbl,
+#map.peek .xway:not(.peek-on) .xway-lbl { opacity: .35; }
+#map.dim .xway.on .xway-line,
+#map.peek .xway.peek-on .xway-line { opacity: 1; stroke-width: 5; }
+#map.dim .xway.on .xway-tail,
+#map.peek .xway.peek-on .xway-tail { opacity: .6; stroke-width: 4; }
+#map.dim .xway.on .xway-lbl,
+#map.peek .xway.peek-on .xway-lbl { opacity: 1; font-size: 11px; }
 .edge { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; filter: brightness(var(--route-brightness)); }
 .edge[data-route="C1"], .edge[data-route="C2"] { stroke-width: 5.5; }
 .edge[data-route="B"] { stroke-width: 4.2; }
